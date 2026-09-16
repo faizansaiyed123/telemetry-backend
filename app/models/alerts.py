@@ -26,6 +26,7 @@ class Alert(BaseModel):
     severity: Severity
     message: str
     resolved: bool = False
+    resolved_at: datetime | None = None
 
 
 class AlertsResponse(BaseModel):
@@ -43,4 +44,16 @@ class TriggerAnomalyRequest(BaseModel):
         ...,
         description="Metric to inject anomaly into: cpu, memory, temperature, latency, error_rate",
         pattern=r"^(cpu|memory|temperature|latency|error_rate)$",
+    )
+    intensity: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=10.0,
+        description="Anomaly intensity multiplier",
+    )
+    duration_seconds: float = Field(
+        default=3.0,
+        ge=0.1,
+        le=60.0,
+        description="Duration in seconds",
     )

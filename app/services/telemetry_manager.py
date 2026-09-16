@@ -156,10 +156,11 @@ class TelemetryManager:
         logger.info("Telemetry rate changed from %d to %d events/sec", old_rate, rate)
         await self._broadcast_system("rate_changed", f"Telemetry rate changed to {rate}/sec")
 
-    async def trigger_anomaly(self, metric: str) -> None:
+    async def trigger_anomaly(self, metric: str, intensity: float = 1.0, duration_seconds: float = 3.0) -> None:
         """Trigger an anomaly on the specified metric."""
-        self._generator.set_anomaly(metric, intensity=1.0, duration=30)
-        logger.info("Anomaly triggered on metric: %s", metric)
+        duration_events = max(1, int(duration_seconds * self._rate))
+        self._generator.set_anomaly(metric, intensity=intensity, duration=duration_events)
+        logger.info("Anomaly triggered on metric: %s (intensity=%.1f, duration=%d events)", metric, intensity, duration_events)
         await self._broadcast_system("anomaly_triggered", f"Anomaly triggered on {metric}")
 
     # --- State queries ---
@@ -209,9 +210,11 @@ class TelemetryManager:
         """Compute and return statistics over the full history."""
         return compute_stats(list(self._history))
 
-    def get_alerts(self) -> list[Alert]:
-        """Return all alerts (active first, then resolved)."""
+    def get_alerts(self, active_only: bool = False) -> list[Alert]:
+        """Return alerts (active first then resolved, or active only)."""
         active = [a for a in self._active_alerts.values()]
+        if active_only:
+            return active
         resolved = [a for a in self._alerts if a.resolved]
         return active + resolved
 
@@ -318,6 +321,7 @@ class TelemetryManager:
                 if metric in self._active_alerts:
                     alert = self._active_alerts.pop(metric)
                     alert.resolved = True
+                    alert.resolved_at = utc_now()
                     broadcasts.append(alert)
                     logger.info("Alert resolved: %s", metric)
 

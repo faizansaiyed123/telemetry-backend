@@ -78,5 +78,15 @@ async def set_rate(request: Request, rate: int = Query(..., ge=1, description="N
 async def trigger_anomaly(request: Request, body: TriggerAnomalyRequest) -> dict:
     """Trigger an anomaly on a specific metric."""
     manager = request.app.state.telemetry_manager
-    await manager.trigger_anomaly(body.metric)
-    return {"status": "triggered", "metric": body.metric, "message": f"Anomaly triggered on {body.metric}"}
+    await manager.trigger_anomaly(
+        body.metric,
+        intensity=body.intensity,
+        duration_seconds=body.duration_seconds,
+    )
+    return {
+        "status": "triggered",
+        "metric": body.metric,
+        "intensity": body.intensity,
+        "duration_seconds": body.duration_seconds,
+        "message": f"Anomaly triggered on {body.metric}",
+    }

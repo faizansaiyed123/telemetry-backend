@@ -106,3 +106,19 @@ class TestTelemetryAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["count"] == 0
+
+    async def test_get_alerts_endpoint(self, client):
+        response = await client.get("/api/alerts")
+        assert response.status_code == 200
+        data = response.json()
+        assert "alerts" in data
+        assert "active_count" in data
+        assert "total_count" in data
+        assert isinstance(data["alerts"], list)
+
+    async def test_get_alerts_active_only(self, client):
+        response = await client.get("/api/alerts?active_only=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert "alerts" in data
+        assert isinstance(data["alerts"], list)

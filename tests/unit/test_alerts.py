@@ -168,3 +168,12 @@ class TestAlertSystem:
         results = manager._anomaly_detector.update(event)
         manager._process_anomaly_results(results, event)
         assert manager.active_alert_count == 0
+
+        # Check resolved_at is populated
+        resolved_alerts = manager.get_alerts()
+        assert len(resolved_alerts) >= 1
+        assert resolved_alerts[0].resolved is True
+        assert resolved_alerts[0].resolved_at is not None
+
+        # Check active_only filter
+        assert manager.get_alerts(active_only=True) == []
