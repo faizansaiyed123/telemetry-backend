@@ -23,6 +23,17 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
 
+    # Database
+    database_url: str = "postgresql+psycopg://telemetry:telemetry@localhost:5432/telemetry"
+    database_echo: bool = False
+
+    # Authentication
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+    bootstrap_admin_email: str = "admin@example.com"
+    bootstrap_admin_password: str = "change-me-in-production"
+
     # Telemetry
     telemetry_rate: int = 10
     max_telemetry_rate: int = 100
@@ -34,25 +45,11 @@ class Settings(BaseSettings):
     # CORS
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
-    @field_validator("telemetry_rate")
+    @field_validator("telemetry_rate", "max_telemetry_rate", "max_history_size", "access_token_expire_minutes")
     @classmethod
-    def validate_telemetry_rate(cls, v: int) -> int:
+    def validate_positive_integer(cls, v: int) -> int:
         if v < 1:
-            raise ValueError("telemetry_rate must be at least 1")
-        return v
-
-    @field_validator("max_telemetry_rate")
-    @classmethod
-    def validate_max_telemetry_rate(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("max_telemetry_rate must be at least 1")
-        return v
-
-    @field_validator("max_history_size")
-    @classmethod
-    def validate_max_history_size(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("max_history_size must be at least 1")
+            raise ValueError("value must be at least 1")
         return v
 
     @field_validator("anomaly_z_threshold")
