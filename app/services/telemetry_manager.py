@@ -13,11 +13,13 @@ import logging
 from collections import deque
 from datetime import datetime
 
+from app.core.config import get_settings
 from app.models.alerts import Alert
 from app.models.telemetry import TelemetryEvent, TelemetryStats
 from app.services.aggregation import compute_stats
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.telemetry_generator import TelemetryGenerator
+from app.services.telemetry_persistence import TelemetryPersistence
 from app.services.websocket_manager import WebSocketManager
 from app.utils.time import utc_now
 
@@ -37,6 +39,10 @@ class TelemetryManager:
         self._generator = TelemetryGenerator()
         self._anomaly_detector = AnomalyDetector(threshold=anomaly_threshold)
         self._ws_manager = WebSocketManager()
+        settings = get_settings()
+        self._persistence: TelemetryPersistence | None = None
+        self._persistence_enabled = settings.telemetry_persistence_enabled
+        self._persistence_host_name = settings.telemetry_host_name
 
         self._history: deque[TelemetryEvent] = deque(maxlen=max_history_size)
         self._max_history_size = max_history_size
@@ -54,6 +60,7 @@ class TelemetryManager:
         self._alert_id_counter: int = 0
 
         self._task: asyncio.Task | None = None
+        self._persistence_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
         self._lock = asyncio.Lock()
@@ -68,6 +75,20 @@ class TelemetryManager:
         self._running = True
         self._stop_event.clear()
         self._start_time = utc_now()
+        if self._persistence_enabled:
+            from sqlalchemy import select
+            from app.db.session import SessionLocal
+            from app.models.db import Host
+            try:
+                with SessionLocal() as db:
+                    host = db.scalar(select(Host).where(Host.name == self._persistence_host_name, Host.is_active.is_(True)))
+                    if host is not None:
+                        self._persistence = TelemetryPersistence(host.id)
+                        await self._persistence.start()
+                    else:
+                        logger.warning("Telemetry persistence disabled for this run: host %r was not found", self._persistence_host_name)
+            except Exception:
+                logger.exception("Unable to initialize telemetry persistence; continuing in-memory")
         self._task = asyncio.create_task(self._generation_loop())
         logger.info("Telemetry generation started at %d events/sec", self._rate)
 
@@ -84,6 +105,9 @@ class TelemetryManager:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        if self._persistence is not None:
+            await self._persistence.stop()
+            self._persistence = None
         logger.info("Telemetry generation stopped")
 
     @property
@@ -265,6 +289,8 @@ class TelemetryManager:
             self._current = event
             self._history.append(event)
             self._events_generated += 1
+            if self._persistence is not None:
+                self._persistence.enqueue(event)
 
             # Check for anomalies
             anomaly_results = self._anomaly_detector.update(event)
