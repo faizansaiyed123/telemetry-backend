@@ -13,7 +13,7 @@ import logging
 from collections import deque
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
@@ -23,7 +23,7 @@ from app.services.aggregation import compute_stats
 from app.services.alert_persistence import AlertPersistence
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.telemetry_generator import TelemetryGenerator
-from app.models.db import Host
+from app.models.db import AlertRecord, Host, TelemetryRecord
 from app.services.telemetry_persistence import TelemetryPersistence
 from app.services.websocket_manager import WebSocketManager
 from app.utils.time import utc_now
@@ -113,6 +113,9 @@ class TelemetryManager:
         if self._persistence is not None:
             await self._persistence.stop()
             self._persistence = None
+        if self._alert_persistence is not None:
+            await self._alert_persistence.stop()
+            self._alert_persistence = None
         logger.info("Telemetry generation stopped")
 
     @property
@@ -159,6 +162,23 @@ class TelemetryManager:
         """
         was_running = self._running
         await self.stop()
+
+        if self._persistence_host_id is not None:
+            try:
+                with SessionLocal() as db:
+                    db.execute(
+                        delete(TelemetryRecord).where(
+                            TelemetryRecord.host_id == self._persistence_host_id
+                        )
+                    )
+                    db.execute(
+                        delete(AlertRecord).where(
+                            AlertRecord.host_id == self._persistence_host_id
+                        )
+                    )
+                    db.commit()
+            except Exception:
+                logger.exception("Unable to clear persisted telemetry state during reset")
 
         async with self._lock:
             self._history.clear()
@@ -355,6 +375,8 @@ class TelemetryManager:
                     alert = self._active_alerts.pop(metric)
                     alert.resolved = True
                     alert.resolved_at = utc_now()
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(alert, self._persistence_host_id)
                     broadcasts.append(alert)
                     logger.info("Alert resolved: %s", metric)
 
