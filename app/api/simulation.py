@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from app.api.dependencies import require_authenticated, require_operator
 from app.models.alerts import TriggerAnomalyRequest
+from app.models.db import User
 from app.models.system import SimulationStatus
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"])
 
 
 @router.get("/status", response_model=SimulationStatus)
-async def get_simulation_status(request: Request) -> SimulationStatus:
+async def get_simulation_status(
+    request: Request,
+    _: User = Depends(require_authenticated),
+) -> SimulationStatus:
     """Get the current simulation state."""
     manager = request.app.state.telemetry_manager
     return SimulationStatus(
@@ -26,7 +31,10 @@ async def get_simulation_status(request: Request) -> SimulationStatus:
 
 
 @router.post("/start", status_code=status.HTTP_200_OK)
-async def start_simulation(request: Request) -> dict:
+async def start_simulation(
+    request: Request,
+    _: User = Depends(require_operator),
+) -> dict:
     """Start telemetry generation."""
     manager = request.app.state.telemetry_manager
     if manager.running:
@@ -36,7 +44,10 @@ async def start_simulation(request: Request) -> dict:
 
 
 @router.post("/pause", status_code=status.HTTP_200_OK)
-async def pause_simulation(request: Request) -> dict:
+async def pause_simulation(
+    request: Request,
+    _: User = Depends(require_operator),
+) -> dict:
     """Pause telemetry generation."""
     manager = request.app.state.telemetry_manager
     if not manager.running:
@@ -46,7 +57,10 @@ async def pause_simulation(request: Request) -> dict:
 
 
 @router.post("/resume", status_code=status.HTTP_200_OK)
-async def resume_simulation(request: Request) -> dict:
+async def resume_simulation(
+    request: Request,
+    _: User = Depends(require_operator),
+) -> dict:
     """Resume telemetry generation."""
     manager = request.app.state.telemetry_manager
     if manager.running:
@@ -56,7 +70,10 @@ async def resume_simulation(request: Request) -> dict:
 
 
 @router.post("/reset", status_code=status.HTTP_200_OK)
-async def reset_simulation(request: Request) -> dict:
+async def reset_simulation(
+    request: Request,
+    _: User = Depends(require_operator),
+) -> dict:
     """Reset all telemetry state."""
     manager = request.app.state.telemetry_manager
     await manager.reset()
@@ -64,18 +81,29 @@ async def reset_simulation(request: Request) -> dict:
 
 
 @router.post("/rate", status_code=status.HTTP_200_OK)
-async def set_rate(request: Request, rate: int = Query(..., ge=1, description="New telemetry rate (events/sec)")) -> dict:
+async def set_rate(
+    request: Request,
+    rate: int = Query(..., ge=1, description="New telemetry rate (events/sec)"),
+    _: User = Depends(require_operator),
+) -> dict:
     """Set the telemetry rate."""
     manager = request.app.state.telemetry_manager
     try:
         await manager.set_rate(rate)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return {"status": "rate_set", "rate": rate, "message": f"Telemetry rate set to {rate}/sec"}
 
 
 @router.post("/trigger", status_code=status.HTTP_200_OK)
-async def trigger_anomaly(request: Request, body: TriggerAnomalyRequest) -> dict:
+async def trigger_anomaly(
+    request: Request,
+    body: TriggerAnomalyRequest,
+    _: User = Depends(require_operator),
+) -> dict:
     """Trigger an anomaly on a specific metric."""
     manager = request.app.state.telemetry_manager
     await manager.trigger_anomaly(
