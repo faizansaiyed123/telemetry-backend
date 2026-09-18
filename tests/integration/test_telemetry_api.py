@@ -99,8 +99,8 @@ class TestTelemetryAPI:
         data = response.json()
         events = data["events"]
         if len(events) > 1:
-            sequences = [e["sequence"] for e in events]
-            assert sequences == sorted(sequences)
+            timestamps = [e["timestamp"] for e in events]
+            assert timestamps == sorted(timestamps)
 
     async def test_stats(self, client_with_events):
         response = await client_with_events.get("/api/telemetry/stats")
