@@ -1,4 +1,4 @@
-"""Background persistence for generated telemetry events."""
+""""Background persistence for generated telemetry events."""
 
 from __future__ import annotations
 
@@ -28,23 +28,34 @@ class TelemetryPersistence:
         self.persisted_events = 0
 
     async def start(self) -> None:
+        """Start the persistence worker once."""
         if self._task is None:
             self._stopping = False
             self._task = asyncio.create_task(self._worker())
 
     async def stop(self) -> None:
+        """Stop the worker after draining queued telemetry where possible."""
         self._stopping = True
         if self._task is None:
             return
-        await self._flush()
-        self._task.cancel()
+
+        task = self._task
         try:
-            await self._task
-        except asyncio.CancelledError:
-            pass
-        self._task = None
+            await asyncio.wait_for(task, timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Telemetry persistence worker did not drain within shutdown timeout; cancelling it"
+            )
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        finally:
+            self._task = None
 
     def enqueue(self, event: TelemetryEvent) -> None:
+        """Queue an event without ever blocking the telemetry generation path."""
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
@@ -52,40 +63,35 @@ class TelemetryPersistence:
             logger.warning("Telemetry persistence queue full; dropping event sequence=%s", event.sequence)
 
     async def _worker(self) -> None:
-        while not self._stopping:
+        """Persist queued events until shutdown is requested and the queue is empty."""
+        while True:
+            if self._stopping and self._queue.empty():
+                break
+
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=0.5)
-                batch = [event]
-                while len(batch) < self._batch_size:
-                    try:
-                        batch.append(self._queue.get_nowait())
-                    except asyncio.QueueEmpty:
-                        break
-                await self._persist(batch)
             except asyncio.TimeoutError:
                 continue
+            except asyncio.CancelledError:
+                raise
+
+            batch = [event]
+            while len(batch) < self._batch_size:
+                try:
+                    batch.append(self._queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+
+            try:
+                await self._persist(batch)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Telemetry persistence worker failed; retrying")
                 await asyncio.sleep(1)
 
-    async def _flush(self) -> None:
-        while not self._queue.empty():
-            batch: list[TelemetryEvent] = []
-            while len(batch) < self._batch_size:
-                try:
-                    batch.append(self._queue.get_nowait())
-                except asyncio.QueueEmpty:
-                    break
-            if batch:
-                try:
-                    await self._persist(batch)
-                except Exception:
-                    logger.exception("Final telemetry persistence flush failed")
-                    break
-
     async def _persist(self, events: Sequence[TelemetryEvent]) -> None:
+        """Persist one batch in a short-lived synchronous database session."""
         rows = [
             {
                 "host_id": self.host_id,
@@ -105,3 +111,4 @@ class TelemetryPersistence:
             db.execute(insert(TelemetryRecord), rows)
             db.commit()
         self.persisted_events += len(rows)
+"
