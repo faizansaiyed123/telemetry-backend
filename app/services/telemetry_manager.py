@@ -20,6 +20,7 @@ from app.db.session import SessionLocal
 from app.models.alerts import Alert
 from app.models.telemetry import TelemetryEvent, TelemetryStats
 from app.services.aggregation import compute_stats
+from app.services.alert_persistence import AlertPersistence
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.telemetry_generator import TelemetryGenerator
 from app.models.db import Host
@@ -45,6 +46,8 @@ class TelemetryManager:
         self._ws_manager = WebSocketManager()
         settings = get_settings()
         self._persistence: TelemetryPersistence | None = None
+        self._alert_persistence: AlertPersistence | None = None
+        self._persistence_host_id: str | None = None
         self._persistence_enabled = settings.telemetry_persistence_enabled
         self._persistence_host_name = settings.telemetry_host_name
 
@@ -83,8 +86,11 @@ class TelemetryManager:
                 with SessionLocal() as db:
                     host = db.scalar(select(Host).where(Host.name == self._persistence_host_name, Host.is_active.is_(True)))
                     if host is not None:
+                        self._persistence_host_id = host.id
                         self._persistence = TelemetryPersistence(host.id)
+                        self._alert_persistence = AlertPersistence()
                         await self._persistence.start()
+                        await self._alert_persistence.start()
                     else:
                         logger.warning("Telemetry persistence disabled for this run: host %r was not found", self._persistence_host_name)
             except Exception:
@@ -330,6 +336,8 @@ class TelemetryManager:
                     )
                     self._active_alerts[metric] = alert
                     self._alerts.append(alert)
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(alert, self._persistence_host_id)
                     broadcasts.append(alert)
                     logger.warning(
                         "Alert created: %s = %s (z=%.2f, severity=%s)",
