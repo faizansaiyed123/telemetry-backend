@@ -16,33 +16,29 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Application
     app_name: str = "Telemetry Backend"
     app_env: str = "development"
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "INFO"
 
-    # Database
     database_url: str = "postgresql+psycopg://telemetry:telemetry@localhost:5432/telemetry"
     database_echo: bool = False
 
-    # Authentication
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     bootstrap_admin_email: str = "admin@example.com"
     bootstrap_admin_password: str = "change-me-in-production"
 
-    # Telemetry
     telemetry_rate: int = 10
     max_telemetry_rate: int = 100
     max_history_size: int = 5000
+    telemetry_persistence_enabled: bool = True
+    telemetry_host_name: str = "synthetic-local"
+    telemetry_host_environment: str = "development"
 
-    # Anomaly detection
     anomaly_z_threshold: float = 3.0
-
-    # CORS
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
     @field_validator("telemetry_rate", "max_telemetry_rate", "max_history_size", "access_token_expire_minutes")
@@ -61,12 +57,10 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        """Parse the comma-separated CORS origins into a list."""
         if not self.cors_allowed_origins:
             return []
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 def get_settings() -> Settings:
-    """Create and return a Settings instance."""
     return Settings()
