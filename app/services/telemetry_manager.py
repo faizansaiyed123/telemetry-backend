@@ -242,6 +242,10 @@ class TelemetryManager:
     def connected_clients(self) -> int:
         return self._ws_manager.client_count
 
+    @property
+    def persistence_host_id(self) -> str | None:
+        return self._persistence_host_id
+
     def get_current(self) -> TelemetryEvent | None:
         return self._current
 
