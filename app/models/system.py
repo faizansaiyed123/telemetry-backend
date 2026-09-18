@@ -1,8 +1,7 @@
-"""System status models"""
+"""System status models."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from pydantic import BaseModel
 
 
@@ -14,6 +13,14 @@ class HealthResponse(BaseModel):
     stream_active: bool
     connected_clients: int
     events_generated: int
+
+
+class ReadinessResponse(BaseModel):
+    """Readiness probe response."""
+
+    status: str
+    database_connected: bool
+    telemetry_manager_available: bool
 
 
 class SimulationStatus(BaseModel):

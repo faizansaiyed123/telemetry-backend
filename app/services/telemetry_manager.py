@@ -74,6 +74,53 @@ class TelemetryManager:
 
     # --- Lifecycle ---
 
+    async def _ensure_persistence(self) -> None:
+        """Start persistence workers when persistence is enabled and a host is available."""
+        if not self._persistence_enabled:
+            return
+        if self._persistence is not None and self._alert_persistence is not None:
+            return
+
+        telemetry_persistence: TelemetryPersistence | None = None
+        alert_persistence: AlertPersistence | None = None
+        try:
+            with SessionLocal() as db:
+                host = None
+                if self._persistence_host_id is not None:
+                    host = db.scalar(
+                        select(Host).where(
+                            Host.id == self._persistence_host_id,
+                            Host.is_active.is_(True),
+                        )
+                    )
+                if host is None:
+                    host = db.scalar(
+                        select(Host).where(
+                            Host.name == self._persistence_host_name,
+                            Host.is_active.is_(True),
+                        )
+                    )
+                if host is None:
+                    logger.warning(
+                        "Telemetry persistence unavailable: host %r was not found",
+                        self._persistence_host_name,
+                    )
+                    return
+                self._persistence_host_id = host.id
+
+            telemetry_persistence = TelemetryPersistence(host.id)
+            alert_persistence = AlertPersistence()
+            await telemetry_persistence.start()
+            await alert_persistence.start()
+            self._persistence = telemetry_persistence
+            self._alert_persistence = alert_persistence
+        except Exception:
+            logger.exception("Unable to initialize telemetry persistence; continuing in-memory")
+            if telemetry_persistence is not None:
+                await telemetry_persistence.stop()
+            if alert_persistence is not None:
+                await alert_persistence.stop()
+
     async def start(self) -> None:
         """Start the telemetry generation background task."""
         if self._running:
@@ -81,20 +128,6 @@ class TelemetryManager:
         self._running = True
         self._stop_event.clear()
         self._start_time = utc_now()
-        if self._persistence_enabled:
-            try:
-                with SessionLocal() as db:
-                    host = db.scalar(select(Host).where(Host.name == self._persistence_host_name, Host.is_active.is_(True)))
-                    if host is not None:
-                        self._persistence_host_id = host.id
-                        self._persistence = TelemetryPersistence(host.id)
-                        self._alert_persistence = AlertPersistence()
-                        await self._persistence.start()
-                        await self._alert_persistence.start()
-                    else:
-                        logger.warning("Telemetry persistence disabled for this run: host %r was not found", self._persistence_host_name)
-            except Exception:
-                logger.exception("Unable to initialize telemetry persistence; continuing in-memory")
         self._task = asyncio.create_task(self._generation_loop())
         logger.info("Telemetry generation started at %d events/sec", self._rate)
 
@@ -145,11 +178,12 @@ class TelemetryManager:
         await self._broadcast_system("paused", "Telemetry generation paused")
 
     async def resume(self) -> None:
-        """Resume telemetry generation."""
+        """Resume telemetry generation and restore persistence if needed."""
         if self._running:
             return
         self._running = True
         self._stop_event.clear()
+        await self._ensure_persistence()
         self._task = asyncio.create_task(self._generation_loop())
         logger.info("Telemetry generation resumed at %d events/sec", self._rate)
         await self._broadcast_system("resumed", "Telemetry generation resumed")

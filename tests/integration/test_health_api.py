@@ -1,4 +1,4 @@
-"""Integration tests for the health API."""
+"""Integration tests for health and readiness APIs."""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -31,19 +31,24 @@ class TestHealthAPI:
 
     async def test_health_status_is_healthy(self, client):
         response = await client.get("/health")
-        data = response.json()
-        assert data["status"] == "healthy"
+        assert response.json()["status"] == "healthy"
 
     async def test_health_stream_active_on_startup(self, client):
         response = await client.get("/health")
-        data = response.json()
-        assert data["stream_active"] is True
+        assert response.json()["stream_active"] is True
 
     async def test_health_no_secrets_exposed(self, client):
         response = await client.get("/health")
-        data = response.json()
-        # Should not contain any sensitive keys
         text = response.text.lower()
         assert "password" not in text
         assert "secret" not in text
         assert "key" not in text
+
+    async def test_ready_returns_200_when_dependencies_are_available(self, client):
+        response = await client.get("/ready")
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "ready",
+            "database_connected": True,
+            "telemetry_manager_available": True,
+        }

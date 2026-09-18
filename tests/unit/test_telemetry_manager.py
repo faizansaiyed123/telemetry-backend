@@ -41,6 +41,29 @@ async def test_stop_closes_both_persistence_workers() -> None:
     assert manager._alert_persistence is None
 
 
+@pytest.mark.asyncio
+async def test_resume_restores_persistence_after_stop() -> None:
+    manager = TelemetryManager()
+    manager._persistence_enabled = True
+    manager._persistence_host_id = "host-1"
+    manager._persistence = AsyncMock()
+    manager._alert_persistence = AsyncMock()
+
+    await manager.stop()
+    assert manager._persistence is None
+    assert manager._alert_persistence is None
+
+    ensure_persistence = AsyncMock()
+    manager._ensure_persistence = ensure_persistence
+
+    try:
+        await manager.resume()
+        ensure_persistence.assert_awaited_once()
+        assert manager._task is not None
+    finally:
+        await manager.stop()
+
+
 def test_resolving_alert_is_persisted() -> None:
     manager = TelemetryManager()
     persistence = MagicMock()
