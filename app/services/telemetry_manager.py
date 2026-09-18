@@ -94,9 +94,8 @@ class TelemetryManager:
 
     async def stop(self) -> None:
         """Stop the telemetry generation background task gracefully."""
-        if not self._running and self._task is None:
-            return
-        self._running = False
+        if self._running or self._task is not None:
+            self._running = False
         self._stop_event.set()
         if self._task is not None:
             self._task.cancel()
