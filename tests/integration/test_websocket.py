@@ -7,6 +7,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
+from app.core.config import get_settings
 from app.main import create_app
 
 
@@ -17,15 +18,26 @@ def app():
 
 @pytest.fixture
 def client(app):
-    """Synchronous TestClient for WebSocket tests."""
+    """Synchronous authenticated TestClient for WebSocket tests."""
     with TestClient(app) as c:
+        settings = get_settings()
+        response = c.post(
+            "/api/auth/login",
+            data={
+                "username": settings.bootstrap_admin_email,
+                "password": settings.bootstrap_admin_password,
+            },
+        )
+        assert response.status_code == 200, response.text
+        c.headers.update({"Authorization": f"Bearer {response.json()['access_token']}"})
+        c.auth_token = response.json()["access_token"]
         yield c
 
 
 class TestWebSocket:
     def test_websocket_connection(self, client):
         """WebSocket should connect successfully."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with client.websocket_connect(f"/ws/telemetry?token={client.auth_token}") as ws:
             # Should receive telemetry messages
             msg = ws.receive_json()
             assert msg["type"] == "telemetry"
