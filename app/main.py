@@ -16,7 +16,7 @@ from app.api.simulation import router as simulation_router
 from app.api.telemetry import router as telemetry_router
 from app.api.users import router as users_router
 from app.api.websocket import router as websocket_router
-from app.core.bootstrap import bootstrap_admin
+from app.core.bootstrap import bootstrap_data
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.services.telemetry_manager import TelemetryManager
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings)
-    bootstrap_admin()
+    bootstrap_data()
     logger.info("Starting %s (env=%s)", settings.app_name, settings.app_env)
     manager = TelemetryManager(
         max_history_size=settings.max_history_size,
