@@ -13,12 +13,16 @@ import logging
 from collections import deque
 from datetime import datetime
 
+from sqlalchemy import select
+
 from app.core.config import get_settings
+from app.db.session import SessionLocal
 from app.models.alerts import Alert
 from app.models.telemetry import TelemetryEvent, TelemetryStats
 from app.services.aggregation import compute_stats
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.telemetry_generator import TelemetryGenerator
+from app.models.db import Host
 from app.services.telemetry_persistence import TelemetryPersistence
 from app.services.websocket_manager import WebSocketManager
 from app.utils.time import utc_now
@@ -60,7 +64,6 @@ class TelemetryManager:
         self._alert_id_counter: int = 0
 
         self._task: asyncio.Task | None = None
-        self._persistence_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
         self._lock = asyncio.Lock()
@@ -76,9 +79,6 @@ class TelemetryManager:
         self._stop_event.clear()
         self._start_time = utc_now()
         if self._persistence_enabled:
-            from sqlalchemy import select
-            from app.db.session import SessionLocal
-            from app.models.db import Host
             try:
                 with SessionLocal() as db:
                     host = db.scalar(select(Host).where(Host.name == self._persistence_host_name, Host.is_active.is_(True)))
