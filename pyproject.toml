@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Real-time telemetry dashboard backend with WebSocket streaming, REST APIs, and deterministic anomaly detection"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Telemetry Backend" }]
 
 dependencies = [
@@ -39,3 +39,7 @@ filterwarnings = [
 
 [tool.uv]
 package = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*", "alembic*"]
