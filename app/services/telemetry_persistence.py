@@ -1,4 +1,4 @@
-""""Background persistence for generated telemetry events."""
+"""Background persistence for generated telemetry events."""
 
 from __future__ import annotations
 
@@ -60,7 +60,10 @@ class TelemetryPersistence:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
             self.dropped_events += 1
-            logger.warning("Telemetry persistence queue full; dropping event sequence=%s", event.sequence)
+            logger.warning(
+                "Telemetry persistence queue full; dropping event sequence=%s",
+                event.sequence,
+            )
 
     async def _worker(self) -> None:
         """Persist queued events until shutdown is requested and the queue is empty."""
@@ -111,4 +114,3 @@ class TelemetryPersistence:
             db.execute(insert(TelemetryRecord), rows)
             db.commit()
         self.persisted_events += len(rows)
-"
