@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -56,18 +56,25 @@ def get_alerts(
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertActionResponse)
-def acknowledge_alert(
+async def acknowledge_alert(
     alert_id: str,
+    request: Request,
     _: User = Depends(require_operator),
     db: Session = Depends(get_db),
 ) -> AlertActionResponse:
     """Mark an alert as acknowledged."""
+    manager = request.app.state.telemetry_manager
     record = db.get(AlertRecord, alert_id)
+
     if record is None:
+        if await manager.acknowledge_alert(alert_id):
+            return AlertActionResponse(status="acknowledged", alert_id=alert_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+
     if record.acknowledged:
         return AlertActionResponse(status="already_acknowledged", alert_id=alert_id)
 
     record.acknowledged = True
     db.commit()
+    await manager.acknowledge_alert(alert_id)
     return AlertActionResponse(status="acknowledged", alert_id=alert_id)

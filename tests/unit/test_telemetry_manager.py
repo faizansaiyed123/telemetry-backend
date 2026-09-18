@@ -25,6 +25,20 @@ def make_event() -> TelemetryEvent:
     )
 
 
+
+@pytest.mark.asyncio
+async def test_start_initializes_persistence() -> None:
+    manager = TelemetryManager()
+    ensure_persistence = AsyncMock()
+    manager._ensure_persistence = ensure_persistence
+
+    try:
+        await manager.start()
+        ensure_persistence.assert_awaited_once()
+        assert manager._task is not None
+    finally:
+        await manager.stop()
+
 @pytest.mark.asyncio
 async def test_stop_closes_both_persistence_workers() -> None:
     manager = TelemetryManager()

@@ -128,6 +128,7 @@ class TelemetryManager:
         self._running = True
         self._stop_event.clear()
         self._start_time = utc_now()
+        await self._ensure_persistence()
         self._task = asyncio.create_task(self._generation_loop())
         logger.info("Telemetry generation started at %d events/sec", self._rate)
 
@@ -312,6 +313,24 @@ class TelemetryManager:
     @property
     def total_alert_count(self) -> int:
         return len(self._alerts)
+
+    async def acknowledge_alert(self, alert_id: str) -> bool:
+        """Acknowledge a live alert and enqueue its updated state for persistence."""
+        async with self._lock:
+            alert = next((item for item in self._alerts if item.id == alert_id), None)
+            if alert is None:
+                alert = next(
+                    (item for item in self._active_alerts.values() if item.id == alert_id),
+                    None,
+                )
+            if alert is None:
+                return False
+
+            if not alert.acknowledged:
+                alert.acknowledged = True
+                if self._alert_persistence is not None:
+                    self._alert_persistence.enqueue(alert, self._persistence_host_id)
+            return True
 
     @property
     def uptime_seconds(self) -> float:

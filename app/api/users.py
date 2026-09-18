@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
@@ -69,6 +69,11 @@ def create_user(
     db: Session = Depends(get_db),
 ):
     email = payload.email.strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email must not be blank",
+        )
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -103,11 +108,35 @@ def update_user(
     if "password" in values:
         user.password_hash = hash_password(values.pop("password"))
 
+    if user.id == current_user.id and "role" in values:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role",
+        )
+
     if user.id == current_user.id and values.get("is_active") is False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot deactivate your own account",
         )
+
+    removing_admin_access = (
+        user.role == "admin"
+        and user.is_active
+        and (values.get("is_active") is False or values.get("role") not in (None, "admin"))
+    )
+    if removing_admin_access:
+        active_admins = db.scalar(
+            select(func.count()).select_from(User).where(
+                User.role == "admin",
+                User.is_active.is_(True),
+            )
+        ) or 0
+        if active_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one active administrator account must remain",
+            )
 
     for key, value in values.items():
         setattr(user, key, value)

@@ -64,23 +64,30 @@ class AlertPersistence:
             logger.warning("Alert persistence queue full; dropping alert id=%s", alert.id)
 
     async def _worker(self) -> None:
-        while True:
-            if self._stopping and self._queue.empty():
-                break
+        retry_item: AlertPersistenceEvent | None = None
 
-            try:
-                item = await asyncio.wait_for(self._queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            except asyncio.CancelledError:
-                raise
+        while True:
+            if retry_item is None:
+                if self._stopping and self._queue.empty():
+                    break
+
+                try:
+                    item = await asyncio.wait_for(self._queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                except asyncio.CancelledError:
+                    raise
+            else:
+                item = retry_item
+                retry_item = None
 
             try:
                 await self._persist(item)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Alert persistence worker failed; retrying")
+                logger.exception("Alert persistence worker failed; retaining item for retry")
+                retry_item = item
                 await asyncio.sleep(1)
 
     async def _persist(self, item: AlertPersistenceEvent) -> None:
@@ -113,7 +120,7 @@ class AlertPersistence:
                         severity=alert.severity.value,
                         message=alert.message,
                         status="resolved" if alert.resolved else "active",
-                        acknowledged=alert.acknowledged,
+                        acknowledged=existing.acknowledged or alert.acknowledged,
                         resolved_at=alert.resolved_at,
                     )
                 )

@@ -67,30 +67,37 @@ class TelemetryPersistence:
 
     async def _worker(self) -> None:
         """Persist queued events until shutdown is requested and the queue is empty."""
+        retry_batch: list[TelemetryEvent] | None = None
+
         while True:
-            if self._stopping and self._queue.empty():
-                break
-
-            try:
-                event = await asyncio.wait_for(self._queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            except asyncio.CancelledError:
-                raise
-
-            batch = [event]
-            while len(batch) < self._batch_size:
-                try:
-                    batch.append(self._queue.get_nowait())
-                except asyncio.QueueEmpty:
+            if retry_batch is None:
+                if self._stopping and self._queue.empty():
                     break
+
+                try:
+                    event = await asyncio.wait_for(self._queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                except asyncio.CancelledError:
+                    raise
+
+                batch = [event]
+                while len(batch) < self._batch_size:
+                    try:
+                        batch.append(self._queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+            else:
+                batch = retry_batch
+                retry_batch = None
 
             try:
                 await self._persist(batch)
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Telemetry persistence worker failed; retrying")
+                logger.exception("Telemetry persistence worker failed; retaining batch for retry")
+                retry_batch = batch
                 await asyncio.sleep(1)
 
     async def _persist(self, events: Sequence[TelemetryEvent]) -> None:
