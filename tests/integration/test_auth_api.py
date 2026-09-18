@@ -28,8 +28,8 @@ async def login(client: AsyncClient, email: str, password: str) -> str:
 
 
 @pytest.mark.asyncio
-async def test_change_password() -> None:
-    async with client() as ac:
+async def test_change_password(client: AsyncClient) -> None:
+    ac = client
         settings = get_settings()
         admin_token = await login(ac, settings.bootstrap_admin_email, settings.bootstrap_admin_password)
         ac.headers.update({"Authorization": f"Bearer {admin_token}"})
