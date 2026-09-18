@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://telemetry:telemetry@localhost:5432/telemetry"
     database_echo: bool = False
 
-    jwt_secret_key: str = "change-me-in-production"
+    jwt_secret_key: str = "development-only-secret-key-change-before-production-32"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     bootstrap_admin_email: str = "admin@example.com"
