@@ -36,7 +36,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://telemetry:telemetry@localhost:5432/telemetry
-      JWT_SECRET_KEY: ci-only-secret
+      JWT_SECRET_KEY: ci-only-secret-please-use-a-longer-key-32
       BOOTSTRAP_ADMIN_EMAIL: admin@example.com
       BOOTSTRAP_ADMIN_PASSWORD: ci-only-password
 
