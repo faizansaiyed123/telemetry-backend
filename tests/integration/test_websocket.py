@@ -35,9 +35,14 @@ def client(app):
 
 
 class TestWebSocket:
+    @staticmethod
+    def _ws(client):
+        """Open an authenticated telemetry WebSocket connection."""
+        return client.websocket_connect(f"/ws/telemetry?token={client.auth_token}")
+
     def test_websocket_connection(self, client):
         """WebSocket should connect successfully."""
-        with client.websocket_connect(f"/ws/telemetry?token={client.auth_token}") as ws:
+        with self._ws(client) as ws:
             # Should receive telemetry messages
             msg = ws.receive_json()
             assert msg["type"] == "telemetry"
@@ -47,7 +52,7 @@ class TestWebSocket:
 
     def test_websocket_message_structure(self, client):
         """Telemetry messages should have the correct JSON structure."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             msg = ws.receive_json()
             assert msg["type"] == "telemetry"
             data = msg["data"]
@@ -63,7 +68,7 @@ class TestWebSocket:
 
     def test_sequence_numbers_monotonic(self, client):
         """Sequence numbers should increase monotonically."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             sequences = []
             for _ in range(5):
                 msg = ws.receive_json()
@@ -76,8 +81,8 @@ class TestWebSocket:
     def test_multiple_clients(self, client):
         """Multiple simultaneous clients should all receive telemetry."""
         with (
-            client.websocket_connect("/ws/telemetry") as ws1,
-            client.websocket_connect("/ws/telemetry") as ws2,
+            self._ws(client) as ws1,
+            self._ws(client) as ws2,
         ):
             msg1 = ws1.receive_json()
             msg2 = ws2.receive_json()
@@ -86,9 +91,9 @@ class TestWebSocket:
 
     def test_disconnect_one_client_continues(self, client):
         """When one client disconnects, the other should continue receiving."""
-        with client.websocket_connect("/ws/telemetry") as ws1:
+        with self._ws(client) as ws1:
             # Connect and disconnect a second client
-            with client.websocket_connect("/ws/telemetry") as ws2:
+            with self._ws(client) as ws2:
                 ws2.receive_json()
             # First client should still receive
             msg = ws1.receive_json()
@@ -97,18 +102,18 @@ class TestWebSocket:
     def test_pause_via_websocket(self, client):
         """Pause should stop telemetry messages."""
         # Use REST to pause
-        client.post("/api/simulation/pause")
-        with client.websocket_connect("/ws/telemetry") as ws:
-            # Should receive a system message about pause
-            # (may receive it or not depending on timing)
-            # Just verify we can connect
+        response = client.post("/api/simulation/pause")
+        assert response.status_code == 200
+        with self._ws(client) as ws:
+            # Connection itself should still be accepted while generation is paused.
             pass
         # Resume for cleanup
-        client.post("/api/simulation/resume")
+        response = client.post("/api/simulation/resume")
+        assert response.status_code == 200
 
     def test_reset_via_websocket(self, client):
         """Reset should clear state and disconnect WebSocket clients."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             # Receive some telemetry
             ws.receive_json()
             # Trigger reset — this disconnects all WS clients
@@ -122,16 +127,19 @@ class TestWebSocket:
 
         # Verify state was reset
         status = client.get("/api/simulation/status")
+        assert status.status_code == 200
         assert status.json()["events_generated"] == 0
         assert status.json()["sequence"] == 0
         # Restart for cleanup
-        client.post("/api/simulation/start")
+        response = client.post("/api/simulation/start")
+        assert response.status_code == 200
 
     def test_rate_change_affects_stream(self, client):
         """Rate change should affect the telemetry stream rate."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             # Set high rate
-            client.post("/api/simulation/rate?rate=50")
+            response = client.post("/api/simulation/rate?rate=50")
+            assert response.status_code == 200
 
             # Collect messages with timing
             messages = []
@@ -146,7 +154,7 @@ class TestWebSocket:
 
     def test_anomaly_trigger_via_rest(self, client):
         """Triggering an anomaly via REST should affect telemetry."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             # Receive baseline
             ws.receive_json()
 
@@ -165,7 +173,7 @@ class TestWebSocket:
 
     def test_alert_messages(self, client):
         """Alert messages should appear when anomalies are detected."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             # Consume enough telemetry messages to build up history for anomaly detection
             telemetry_count = 0
             for _ in range(40):
@@ -176,15 +184,14 @@ class TestWebSocket:
                     break
 
             # Trigger an anomaly to generate alerts
-            client.post("/api/simulation/trigger", json={"metric": "cpu"})
+            response = client.post("/api/simulation/trigger", json={"metric": "cpu"})
+            assert response.status_code == 200
 
             # Collect messages looking for alert
-            found_alert = False
             for _ in range(100):
                 try:
                     msg = ws.receive_json()
                     if msg["type"] == "alert":
-                        found_alert = True
                         assert "id" in msg["data"]
                         assert "metric" in msg["data"]
                         assert "severity" in msg["data"]
@@ -193,11 +200,10 @@ class TestWebSocket:
                 except Exception:
                     break
             # Alert may or may not appear depending on z-score
-            # This test is best-effort
 
     def test_malformed_client_message(self, client):
         """Malformed messages from client should not crash the server."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             ws.send_text("not valid json {{{")
             # Server should still send telemetry
             msg = ws.receive_json()
@@ -205,8 +211,9 @@ class TestWebSocket:
 
     def test_graceful_disconnect(self, client):
         """Client disconnecting should not crash the server."""
-        with client.websocket_connect("/ws/telemetry") as ws:
+        with self._ws(client) as ws:
             ws.receive_json()
         # After disconnect, server should still work
         response = client.get("/health")
         assert response.status_code == 200
+"
