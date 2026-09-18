@@ -3,6 +3,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import get_settings
 from app.main import create_app
 
 
@@ -12,6 +13,16 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         async with app.router.lifespan_context(app):
+            settings = get_settings()
+            response = await ac.post(
+                "/api/auth/login",
+                data={
+                    "username": settings.bootstrap_admin_email,
+                    "password": settings.bootstrap_admin_password,
+                },
+            )
+            assert response.status_code == 200, response.text
+            ac.headers.update({"Authorization": f"Bearer {response.json()['access_token']}"})
             yield ac
 
 
