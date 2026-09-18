@@ -27,6 +27,7 @@ class Alert(BaseModel):
     message: str
     resolved: bool = False
     resolved_at: datetime | None = None
+    acknowledged: bool = False
 
 
 class AlertsResponse(BaseModel):
