@@ -9,6 +9,7 @@ EXPECTED_HTTP_ROUTES = {
     ("GET", "/health"),
     ("GET", "/ready"),
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/signup"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/auth/change-password"),
     ("GET", "/api/users"),
