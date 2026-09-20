@@ -124,6 +124,11 @@ class TestWebSocket:
         response = client.post("/api/simulation/pause")
         assert response.status_code == 200
 
+        # A second reset while paused cannot race the generation loop and
+        # therefore gives us a deterministic zero-counter assertion.
+        response = client.post("/api/simulation/reset")
+        assert response.status_code == 200
+
         status = client.get("/api/simulation/status")
         assert status.json()["events_generated"] == 0
         assert status.json()["sequence"] == 0
