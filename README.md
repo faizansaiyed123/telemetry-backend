@@ -9,6 +9,7 @@ FastAPI service for a real-time infrastructure observability platform. It genera
 - Alert lifecycle tracking: detected → active → resolved, with deduplication and acknowledgement.
 - PostgreSQL persistence through SQLAlchemy and Alembic.
 - JWT authentication with Argon2 password hashing.
+- Public account signup with viewer access by default.
 - Role-based access control for admin, operator, and viewer.
 - Host and user administration APIs.
 - Simulation controls for start, pause, resume, reset, rate changes, and fault injection.
@@ -84,6 +85,7 @@ telemetry-backend/
 │   └── integration/
 ├── .env.example
 ├── Dockerfile
+├── README.md
 ├── pyproject.toml
 └── uv.lock
 ```
@@ -186,6 +188,12 @@ The bootstrap admin is created only when the configured email does not already e
 
 Authentication uses bearer JWTs.
 
+### Public signup
+
+`POST /api/auth/signup` accepts an email and password without authentication. The API normalizes the email, stores a securely hashed password, creates the account as an active `viewer`, and returns a bearer session using the same response contract as login. Existing emails return `409 Conflict`.
+
+This keeps public registration separate from the admin-only user-management API: administrators can still create or update accounts and can grant operator/admin roles.
+
 ### Roles
 
 | Capability | Viewer | Operator | Admin |
@@ -214,6 +222,7 @@ The backend checks both the JWT and the current active database user. Deactivati
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
 | POST | /api/auth/login | Public | Issue a bearer token |
+| POST | /api/auth/signup | Public | Create a viewer account and issue a bearer token |
 | GET | /api/auth/me | Authenticated | Return current user |
 | POST | /api/auth/change-password | Authenticated | Change current password |
 
