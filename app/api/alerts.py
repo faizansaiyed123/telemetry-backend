@@ -47,7 +47,14 @@ def get_alerts(
         stmt = stmt.where(AlertRecord.status == "active")
 
     records = list(db.scalars(stmt))
-    alerts = [_to_alert(record) for record in records]
+    if records:
+        alerts = [_to_alert(record) for record in records]
+    else:
+        # Persistence may be disabled (or briefly empty while its async worker
+        # is catching up). Keep the live alert API useful in that case.
+        manager = request.app.state.telemetry_manager
+        alerts = manager.get_alerts(active_only=active_only)
+
     return AlertsResponse(
         alerts=alerts,
         active_count=sum(not alert.resolved for alert in alerts),
