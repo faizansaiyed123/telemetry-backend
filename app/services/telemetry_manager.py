@@ -229,6 +229,12 @@ class TelemetryManager:
 
         await self._ws_manager.disconnect_all()
         logger.info("Telemetry state reset")
+
+        # Preserve the pre-reset running state. Resetting a live engine should
+        # clear its state without leaving the stream unexpectedly paused.
+        if was_running:
+            await self.start()
+
         await self._broadcast_system("reset", "Telemetry state has been reset")
 
     async def set_rate(self, rate: int) -> None:
