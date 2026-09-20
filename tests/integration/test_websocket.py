@@ -116,6 +116,15 @@ class TestWebSocket:
 
         status = client.get("/api/simulation/status")
         assert status.status_code == 200
+        assert status.json()["running"] is True
+        assert status.json()["sequence"] in (0, 1)
+
+        # Pause after reset so the cleared counters can be asserted without
+        # racing the restarted generation loop.
+        response = client.post("/api/simulation/pause")
+        assert response.status_code == 200
+
+        status = client.get("/api/simulation/status")
         assert status.json()["events_generated"] == 0
         assert status.json()["sequence"] == 0
 
