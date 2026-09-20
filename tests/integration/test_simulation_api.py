@@ -76,10 +76,14 @@ class TestSimulationAPI:
 
     async def test_reset(self, client):
         import asyncio
-        await asyncio.sleep(0.3)  # Generate some events
+
+        await asyncio.sleep(0.3)
         before = await client.get("/api/simulation/status")
         assert before.json()["events_generated"] > 0
 
+        # Pause first so the reset assertions are not racing the background
+        # generation loop. Reset itself preserves the pre-reset running state.
+        await client.post("/api/simulation/pause")
         response = await client.post("/api/simulation/reset")
         assert response.status_code == 200
         assert response.json()["status"] == "reset"
@@ -87,6 +91,7 @@ class TestSimulationAPI:
         after = await client.get("/api/simulation/status")
         assert after.json()["events_generated"] == 0
         assert after.json()["sequence"] == 0
+        assert after.json()["running"] is False
 
     async def test_reset_clears_history(self, client):
         import asyncio
