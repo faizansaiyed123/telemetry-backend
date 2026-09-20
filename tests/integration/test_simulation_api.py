@@ -95,7 +95,9 @@ class TestSimulationAPI:
 
     async def test_reset_clears_history(self, client):
         import asyncio
+
         await asyncio.sleep(0.3)
+        await client.post("/api/simulation/pause")
         response = await client.post("/api/simulation/reset")
         assert response.status_code == 200
 
