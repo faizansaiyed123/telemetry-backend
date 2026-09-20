@@ -112,6 +112,7 @@ class TestTelemetryAPI:
         assert data["cpu"]["min"] is not None or data["count"] == 0
 
     async def test_stats_after_reset(self, client):
+        await client.post("/api/simulation/pause")
         await client.post("/api/simulation/reset")
         response = await client.get("/api/telemetry/stats")
         assert response.status_code == 200

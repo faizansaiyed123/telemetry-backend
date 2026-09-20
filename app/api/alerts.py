@@ -37,6 +37,7 @@ def _to_alert(record: AlertRecord) -> Alert:
 
 @router.get("", response_model=AlertsResponse)
 def get_alerts(
+    request: Request,
     active_only: bool = Query(default=False, description="Filter for only active alerts"),
     _: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
