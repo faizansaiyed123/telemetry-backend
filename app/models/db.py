@@ -70,6 +70,7 @@ class AlertRule(Base):
 
 class TelemetryRecord(Base):
     __tablename__ = "telemetry_records"
+    __table_args__ = (UniqueConstraint("host_id", "sequence", name="uq_telemetry_host_sequence"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     host_id: Mapped[str] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
