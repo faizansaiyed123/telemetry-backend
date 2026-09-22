@@ -18,17 +18,12 @@ def upgrade() -> None:
     op.add_column("hosts", sa.Column("agent_version", sa.String(length=64), nullable=True))
     op.create_index("ix_hosts_last_seen_at", "hosts", ["last_seen_at"])
 
-    op.add_column(
-        "telemetry_records",
-        sa.Column("source", sa.String(length=16), nullable=False, server_default="synthetic"),
-    )
+    op.add_column("telemetry_records", sa.Column("source", sa.String(length=16), nullable=False, server_default="synthetic"))
     op.add_column("telemetry_records", sa.Column("agent_version", sa.String(length=64), nullable=True))
-    op.add_column(
-        "telemetry_records",
-        sa.Column("received_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
+    op.add_column("telemetry_records", sa.Column("received_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
     op.create_index("ix_telemetry_records_source", "telemetry_records", ["source"])
     op.create_index("ix_telemetry_records_received_at", "telemetry_records", ["received_at"])
+    op.create_unique_constraint("uq_telemetry_host_sequence", "telemetry_records", ["host_id", "sequence"])
 
     op.create_table(
         "api_keys",
@@ -64,14 +59,8 @@ def upgrade() -> None:
     op.create_index("ix_alert_rules_metric", "alert_rules", ["metric"])
     op.create_index("ix_alert_rules_enabled", "alert_rules", ["enabled"])
 
-    op.add_column(
-        "alert_records",
-        sa.Column("source", sa.String(length=32), nullable=False, server_default="anomaly"),
-    )
-    op.add_column(
-        "alert_records",
-        sa.Column("rule_id", sa.String(length=36), sa.ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True),
-    )
+    op.add_column("alert_records", sa.Column("source", sa.String(length=32), nullable=False, server_default="anomaly"))
+    op.add_column("alert_records", sa.Column("rule_id", sa.String(length=36), sa.ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True))
     op.create_index("ix_alert_records_source", "alert_records", ["source"])
     op.create_index("ix_alert_records_rule_id", "alert_records", ["rule_id"])
 
@@ -136,6 +125,7 @@ def downgrade() -> None:
     op.drop_index("ix_api_keys_key_hash", table_name="api_keys")
     op.drop_index("ix_api_keys_host_id", table_name="api_keys")
     op.drop_table("api_keys")
+    op.drop_constraint("uq_telemetry_host_sequence", "telemetry_records", type_="unique")
     op.drop_index("ix_telemetry_records_received_at", table_name="telemetry_records")
     op.drop_index("ix_telemetry_records_source", table_name="telemetry_records")
     op.drop_column("telemetry_records", "received_at")
