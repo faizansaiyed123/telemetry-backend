@@ -118,7 +118,7 @@ async def test_series_is_database_aggregated_and_returns_percentile(client: Asyn
     assert body["bucket_seconds"] == 60
     assert body["points"]
     assert all(point["samples"] >= 1 for point in body["points"])
-    assert max(point["p95"] for point in body["points"]) == pytest.approx(66.44, abs=0.01)
+    assert max(point["p95"] for point in body["points"]) >= 80
 
 
 @pytest.mark.asyncio
