@@ -34,7 +34,7 @@ def add_audit_log(
         resource_id=resource_id,
         outcome=outcome,
         ip_address=client_host,
-        user_agent=user_agent,
+        user_agent=user_agent[:512] if user_agent else None,
         details=json.dumps(details, sort_keys=True, default=str) if details else None,
     )
     db.add(event)
