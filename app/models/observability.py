@@ -268,3 +268,76 @@ class IncidentEvidenceResponse(BaseModel):
     change_count: int
     correlation_window_minutes: int
     findings: list[str]
+
+
+NOTIFICATION_SEVERITIES = ("INFO", "WARNING", "CRITICAL")
+NOTIFICATION_EVENT_TYPES = ("alert", "incident")
+
+
+class NotificationChannelCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    webhook_url: str = Field(min_length=12, max_length=2048)
+    min_severity: str = Field(default="WARNING", pattern=r"^(INFO|WARNING|CRITICAL)$")
+    notify_alerts: bool = True
+    notify_incidents: bool = True
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+
+class NotificationChannelUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    webhook_url: str | None = Field(default=None, min_length=12, max_length=2048)
+    min_severity: str | None = Field(default=None, pattern=r"^(INFO|WARNING|CRITICAL)$")
+    notify_alerts: bool | None = None
+    notify_incidents: bool | None = None
+    enabled: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_optional_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+
+class NotificationChannelResponse(BaseModel):
+    id: str
+    name: str
+    channel_type: str
+    webhook_url: str
+    min_severity: str
+    notify_alerts: bool
+    notify_incidents: bool
+    enabled: bool
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationDeliveryResponse(BaseModel):
+    id: str
+    channel_id: str
+    event_type: str
+    event_id: str
+    incident_id: str | None
+    alert_id: str | None
+    severity: str
+    status: str
+    attempts: int
+    next_attempt_at: datetime | None
+    last_attempt_at: datetime | None
+    last_error: str | None
+    delivered_at: datetime | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
