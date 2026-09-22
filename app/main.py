@@ -33,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 def _client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # Use the direct socket peer by default. Forwarded headers are only safe
+    # when populated by a trusted proxy layer, so this app does not trust
+    # client-controlled X-Forwarded-For for abuse-limit identity.
     return request.client.host if request.client else "unknown"
 
 
