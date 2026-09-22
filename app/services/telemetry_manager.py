@@ -427,6 +427,10 @@ class TelemetryManager:
         return self._rate
 
     @property
+    def max_history_size(self) -> int:
+        return self._max_history_size
+
+    @property
     def max_rate(self) -> int:
         return self._max_rate
 
