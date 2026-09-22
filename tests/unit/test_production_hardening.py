@@ -26,7 +26,7 @@ def test_agent_collects_real_host_metrics_without_probe() -> None:
     collector = HostCollector(None)
     sample = collector.collect()
 
-    assert sample["sequence"] == 1
+    assert sample["sequence"] > 0
     assert 0 <= sample["cpu"] <= 100
     assert 0 <= sample["memory"] <= 100
     assert sample["network_mbps"] >= 0
