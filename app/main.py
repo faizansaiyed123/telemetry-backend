@@ -9,6 +9,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.alerts import router as alerts_router
+from app.api.api_keys import router as api_keys_router
+from app.api.audit import router as audit_router
+from app.api.alert_rules import router as alert_rules_router
+from app.api.incidents import router as incidents_router
+from app.api.ingest import router as ingest_router
+from app.api.system import router as system_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.hosts import router as hosts_router
@@ -64,6 +70,12 @@ def create_app() -> FastAPI:
     app.include_router(hosts_router)
     app.include_router(telemetry_router)
     app.include_router(alerts_router)
+    app.include_router(alert_rules_router)
+    app.include_router(incidents_router)
+    app.include_router(api_keys_router)
+    app.include_router(ingest_router)
+    app.include_router(audit_router)
+    app.include_router(system_router)
     app.include_router(simulation_router)
     app.include_router(websocket_router)
     return app
