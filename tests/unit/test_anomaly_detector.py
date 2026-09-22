@@ -146,18 +146,18 @@ class TestAnomalyDetector:
             d.update(make_event(sequence=i, cpu=50.0))
             d.update(make_event(sequence=i, cpu=95.0, memory=60.0))
 
-        from dataclasses import replace
+        
 
         host_a = make_event(sequence=100, cpu=50.0)
-        host_a = replace(host_a, host_id="host-a")
+        host_a = host_a.model_copy(update={"host_id": "host-a"})
         host_b = make_event(sequence=100, cpu=50.0)
-        host_b = replace(host_b, host_id="host-b")
+        host_b = host_b.model_copy(update={"host_id": "host-b"})
         for i in range(12):
-            event_a = replace(host_a, sequence=i)
-            event_b = replace(host_b, sequence=i)
+            event_a = host_a.model_copy(update={"sequence": i})
+            event_b = host_b.model_copy(update={"sequence": i})
             d.update(event_a)
             d.update(event_b)
 
-        results = d.update(replace(host_b, sequence=200, cpu=95.0))
+        results = d.update(host_b.model_copy(update={"sequence": 200, "cpu": 95.0}))
         cpu_result = [item for item in results if item.metric == "cpu"][0]
         assert cpu_result.is_anomaly
