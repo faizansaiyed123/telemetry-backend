@@ -339,3 +339,78 @@ async def test_resolved_incident_history_survives_runtime_rehydration(client: As
     incidents = await client.get("/api/incidents")
     assert incidents.status_code == 200
     assert any(item["status"] == "resolved" for item in incidents.json())
+
+
+@pytest.mark.asyncio
+async def test_slo_status_tracks_error_budget_and_database_aggregation(client: AsyncClient) -> None:
+    host_name = f"slo-{uuid4().hex}"
+    host_response = await client.post(
+        "/api/hosts",
+        json={"name": host_name, "environment": "test"},
+    )
+    assert host_response.status_code == 201, host_response.text
+    host_id = host_response.json()["id"]
+
+    key_response = await client.post(
+        f"/api/api-keys/hosts/{host_id}",
+        json={"name": "slo-agent"},
+    )
+    assert key_response.status_code == 201, key_response.text
+    secret = key_response.json()["secret"]
+
+    base = datetime.now(timezone.utc) - timedelta(seconds=3)
+    payload = {
+        "events": [
+            event(1, cpu=10, offset=0),
+            event(2, cpu=95, offset=1),
+            event(3, cpu=20, offset=2),
+        ],
+        "agent_version": "slo-agent/1.0",
+    }
+    ingest = await client.post(
+        "/api/ingest/v1/telemetry",
+        json=payload,
+        headers={"X-Telemetry-Key": secret},
+    )
+    assert ingest.status_code == 200, ingest.text
+
+    created = await client.post(
+        "/api/slos",
+        json={
+            "name": f"CPU objective {uuid4().hex}",
+            "host_id": host_id,
+            "metric": "cpu",
+            "operator": "<",
+            "threshold": 80,
+            "objective_percent": 66.67,
+            "window_hours": 1,
+        },
+    )
+    assert created.status_code == 201, created.text
+    slo_id = created.json()["id"]
+
+    status_response = await client.get(f"/api/slos/{slo_id}/status")
+    assert status_response.status_code == 200, status_response.text
+    data = status_response.json()
+    assert data["total_samples"] == 3
+    assert data["good_samples"] == 2
+    assert data["bad_samples"] == 1
+    assert data["sli_percent"] == round((2 / 3) * 100, 4)
+    assert data["compliant"] is True
+    assert data["error_budget_remaining_percent"] == 0.0
+
+    updated = await client.patch(
+        f"/api/slos/{slo_id}",
+        json={"objective_percent": 80},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["objective_percent"] == 80
+
+    now_non_compliant = await client.get(f"/api/slos/{slo_id}/status")
+    assert now_non_compliant.status_code == 200
+    assert now_non_compliant.json()["compliant"] is False
+
+    deleted = await client.delete(f"/api/slos/{slo_id}")
+    assert deleted.status_code == 204
+    missing = await client.get(f"/api/slos/{slo_id}/status")
+    assert missing.status_code == 404
