@@ -7,6 +7,7 @@ import json
 import logging
 from collections import deque
 from datetime import datetime
+from uuid import uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
