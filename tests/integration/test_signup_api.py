@@ -5,16 +5,19 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.rate_limit import rate_limiter
 from app.main import create_app
 
 
 @pytest.fixture
 async def client():
+    rate_limiter.reset()
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         async with app.router.lifespan_context(app):
             yield ac
+    rate_limiter.reset()
 
 
 @pytest.mark.asyncio
@@ -51,7 +54,10 @@ async def test_signup_duplicate_email_returns_conflict(client: AsyncClient) -> N
     first = await client.post("/api/auth/signup", json={"email": email, "password": password})
     assert first.status_code == 201, first.text
 
-    duplicate = await client.post("/api/auth/signup", json={"email": email.upper(), "password": password})
+    duplicate = await client.post(
+        "/api/auth/signup",
+        json={"email": email.upper(), "password": password},
+    )
     assert duplicate.status_code == 409
     assert duplicate.json()["detail"] == "An account with this email already exists"
 
@@ -76,7 +82,10 @@ async def test_signup_account_can_login_after_creation(client: AsyncClient) -> N
     email = f"login-{uuid4().hex}@example.com"
     password = "Signup-test-password-123"
 
-    signup = await client.post("/api/auth/signup", json={"email": email, "password": password})
+    signup = await client.post(
+        "/api/auth/signup",
+        json={"email": email, "password": password},
+    )
     assert signup.status_code == 201
 
     login = await client.post(
