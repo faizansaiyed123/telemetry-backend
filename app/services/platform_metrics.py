@@ -17,6 +17,7 @@ _COUNTER_NAMES = (
     "alert_resolved_total",
     "incident_created_total",
     "incident_resolved_total",
+    "incident_persistence_dropped_total",
     "audit_events_total",
     "auth_rate_limited_total",
     "ingestion_rate_limited_total",
