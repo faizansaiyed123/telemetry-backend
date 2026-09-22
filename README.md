@@ -1,54 +1,73 @@
 # Telemetry Backend
 
-FastAPI service for a real-time infrastructure observability platform. It generates telemetry, detects anomalies, manages alerts, persists historical data in PostgreSQL, and streams live events to authenticated clients over WebSocket.
+Production-oriented FastAPI backend for a real-time infrastructure observability platform.
 
-## What this service provides
+The service combines live telemetry streaming, real host ingestion, deterministic anomaly detection, configurable alert rules, incident correlation, SLO/error-budget evaluation, PostgreSQL persistence, auditability, abuse protection, and self-observability. It uses only free/open-source components and keeps the real-time path independent from database latency.
 
-- Real-time telemetry generation for CPU, memory, temperature, network throughput, requests/sec, error rate, and latency.
-- Rolling z-score anomaly detection with INFO, WARNING, and CRITICAL severity levels.
-- Alert lifecycle tracking: detected → active → resolved, with deduplication and acknowledgement.
-- PostgreSQL persistence through SQLAlchemy and Alembic.
-- JWT authentication with Argon2 password hashing.
-- Public account signup with viewer access by default.
-- Role-based access control for admin, operator, and viewer.
-- Host and user administration APIs.
-- Simulation controls for start, pause, resume, reset, rate changes, and fault injection.
-- Authenticated WebSocket streaming for telemetry, alerts, and system events.
-- Bounded background persistence queues so database work stays off the telemetry generation path.
-- Liveness and readiness endpoints.
-- Production configuration checks and a non-root Docker runtime.
+## Why this project is technically interesting
 
-Redis is intentionally not used in the current architecture. The application is designed as a self-contained single-process service.
+This is intentionally more than a dashboard API. The backend demonstrates several engineering problems that appear in real observability systems:
+
+- **Two telemetry sources through one processing pipeline:** a correlated synthetic generator for repeatable demos and a real host agent built on psutil.
+- **Hot-path isolation:** telemetry generation and WebSocket broadcast do not wait on PostgreSQL writes.
+- **Durable ingestion:** host-scoped API keys, bounded batches, PostgreSQL uniqueness, and idempotent retry behavior.
+- **Stateful alerting:** threshold rules support sustained-duration conditions, cooldowns, deduplication, and per-host state.
+- **Incident correlation:** related alerts are grouped into incidents and persisted asynchronously.
+- **SLOs:** database-side aggregation calculates sample-based SLI and remaining error budget.
+- **Self-observability:** runtime health, throughput, queue depth, drops, request RED metrics, and Prometheus-compatible output.
+- **Security controls:** JWT + active-user checks, Argon2 password hashing, API-key hashing, role-based authorization, audit logs, and rate limiting.
+- **Explicit scaling boundary:** the current deployment is single-process; process-local state is not disguised as distributed state.
 
 ## Architecture
 
 ```
-                    ┌─────────────────────────┐
-                    │      FastAPI app        │
-                    └────────────┬────────────┘
-                                 │
-            ┌────────────────────┼────────────────────┐
-            │                    │                    │
-            ▼                    ▼                    ▼
-      REST API layer       WebSocket layer      Health checks
-            │                    │
-            ▼                    ▼
-     ┌──────────────┐     ┌───────────────┐
-     │ Telemetry    │────▶│ WebSocket     │
-     │ Manager      │     │ Manager       │
-     └──────┬───────┘     └───────────────┘
-            │
-      ┌─────┼───────────────┐
-      │     │               │
-      ▼     ▼               ▼
- Generator  Anomaly      Persistence
-            detector      workers
-                              │
-                              ▼
-                         PostgreSQL
+                         ┌──────────────────────────┐
+                         │        React UI           │
+                         │ REST + authenticated WS   │
+                         └────────────┬─────────────┘
+                                      │
+                         ┌────────────▼─────────────┐
+                         │        FastAPI API        │
+                         │ auth / RBAC / rate limit  │
+                         └────────────┬─────────────┘
+                                      │
+             ┌────────────────────────┼────────────────────────┐
+             │                        │                        │
+             ▼                        ▼                        ▼
+     Synthetic generator       Real host agent          Query / admin APIs
+             │                 (psutil + HTTPS)                │
+             └──────────────┬───────────────┬──────────────────┘
+                            ▼               ▼
+                    ┌────────────────────────────┐
+                    │      TelemetryManager       │
+                    │ unified processing pipeline  │
+                    └─────────────┬──────────────┘
+                                  │
+          ┌───────────────────────┼────────────────────────┐
+          │                       │                        │
+          ▼                       ▼                        ▼
+   Anomaly detector        Alert rule engine        Runtime metrics
+          │                       │                        │
+          └──────────────┬────────┘                        │
+                         ▼                                 │
+                ┌─────────────────┐                        │
+                │ Incident engine │                        │
+                └────────┬────────┘                        │
+                         │                                 │
+                         ▼                                 ▼
+                 Async persistence                    /metrics
+                         │                         Prometheus text
+                         ▼
+                    PostgreSQL
 ```
 
-The TelemetryManager is the central runtime component. It owns the live telemetry state, generation lifecycle, anomaly processing, alert lifecycle, and persistence workers.
+### Core design principle
+
+All telemetry sources enter the same `TelemetryManager.process_event()` pipeline.
+
+That means anomaly detection, rule evaluation, alert lifecycle, incident correlation, WebSocket publication, and runtime counters behave consistently regardless of whether an event came from the simulator or a real host.
+
+Database persistence is deliberately asynchronous and bounded. If PostgreSQL slows down, the real-time generation path is not held hostage by a synchronous database transaction.
 
 ## Tech stack
 
@@ -56,143 +75,95 @@ The TelemetryManager is the central runtime component. It owns the live telemetr
 |---|---|
 | API | FastAPI |
 | Language | Python 3.12+ |
-| Recommended runtime | Python 3.13 |
+| Runtime | Uvicorn |
+| Validation | Pydantic v2 |
 | Database | PostgreSQL 16+ |
 | ORM | SQLAlchemy 2 |
 | Migrations | Alembic |
 | Authentication | JWT / PyJWT |
 | Password hashing | Argon2 via pwdlib |
-| Validation | Pydantic v2 |
+| Real host metrics | psutil |
 | Streaming | WebSocket |
-| Runtime | Uvicorn |
-| Package management | uv |
-| Container | Docker |
+| Package manager | uv |
+| Containers | Docker |
+| Testing | pytest + pytest-asyncio + httpx |
+
+No Redis, paid SaaS, paid observability platform, or external broker is required.
 
 ## Project structure
 
 ```
 telemetry-backend/
 ├── app/
-│   ├── api/              # HTTP and WebSocket endpoints
-│   ├── core/             # settings, security, bootstrap, logging
-│   ├── db/               # SQLAlchemy engine and sessions
-│   ├── models/           # API/domain and database models
-│   ├── services/         # telemetry engine, anomaly detection, persistence
+│   ├── api/              # REST and WebSocket endpoints
+│   ├── core/             # settings, security, bootstrap, rate limiting
+│   ├── db/               # SQLAlchemy engine/session
+│   ├── models/           # API and database models
+│   ├── services/         # telemetry, ingestion, rules, incidents, SLOs
 │   └── utils/            # shared helpers
-├── alembic/              # database migrations
+├── agent/
+│   ├── telemetry_agent.py
+│   └── README.md
+├── alembic/
+│   └── versions/
 ├── tests/
 │   ├── unit/
 │   └── integration/
-├── .env.example
 ├── Dockerfile
 ├── README.md
 ├── pyproject.toml
 └── uv.lock
 ```
 
-## Requirements
+## Local setup
+
+Requirements:
+
+- Python 3.12+
+- PostgreSQL 16+
+- uv
+- Docker is optional for local development but used by CI
 
 Install:
 
-- Python 3.12 or newer
-- PostgreSQL 16 or newer
-- uv
-
-A local Redis server is not required.
-
-## Local setup
-
-### 1. Install dependencies
-
-```
+```bash
 uv sync
 ```
 
-### 2. Configure the environment
+Configure:
 
-Copy the example file:
-
-```
+```bash
 cp .env.example .env
 ```
 
-At minimum, configure the database and authentication values for your environment.
+Apply schema:
 
-### 3. Create or update the database schema
-
-Alembic owns schema creation. The application does not create tables automatically.
-
-```
+```bash
 uv run alembic upgrade head
 ```
 
-### 4. Start the API
+Start:
 
-```
+```bash
 uv run uvicorn app.main:app --reload
 ```
 
-The API is available at:
+Endpoints:
 
 - API: http://localhost:8000
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
+- Liveness: http://localhost:8000/health
+- Readiness: http://localhost:8000/ready
 
-## Environment configuration
+## Authentication and authorization
 
-See .env.example for the complete list.
+Authentication uses bearer JWTs. Every authenticated request checks both:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| APP_NAME | Telemetry Backend | API name |
-| APP_ENV | development | Runtime environment |
-| HOST | 0.0.0.0 | Bind host |
-| PORT | 8000 | Bind port |
-| LOG_LEVEL | INFO | Log level |
-| DATABASE_URL | local PostgreSQL URL | PostgreSQL connection |
-| DATABASE_ECHO | false | SQLAlchemy SQL logging |
-| JWT_SECRET_KEY | development placeholder | JWT signing secret |
-| JWT_ALGORITHM | HS256 | JWT algorithm |
-| ACCESS_TOKEN_EXPIRE_MINUTES | 60 | JWT lifetime |
-| BOOTSTRAP_ADMIN_EMAIL | admin@example.com | Initial administrator email |
-| BOOTSTRAP_ADMIN_PASSWORD | development placeholder | Initial administrator password |
-| TELEMETRY_RATE | 10 | Default events/sec |
-| MAX_TELEMETRY_RATE | 100 | Maximum allowed events/sec |
-| MAX_HISTORY_SIZE | 5000 | In-memory history limit |
-| TELEMETRY_PERSISTENCE_ENABLED | true | Enable PostgreSQL telemetry persistence |
-| TELEMETRY_HOST_NAME | synthetic-local | System-managed persistence host |
-| TELEMETRY_HOST_ENVIRONMENT | development | Persistence host environment |
-| ANOMALY_Z_THRESHOLD | 3.0 | Anomaly detection threshold |
-| CORS_ALLOWED_ORIGINS | localhost origins | Comma-separated browser origins |
+1. the JWT signature and claims, and
+2. the current active user row in PostgreSQL.
 
-### Production configuration
-
-Set:
-
-```
-APP_ENV=production
-```
-
-Production startup rejects the known development JWT secret or bootstrap password and enforces minimum secret lengths.
-
-Use strong, unique values for:
-
-```
-JWT_SECRET_KEY=<long-random-secret>
-BOOTSTRAP_ADMIN_PASSWORD=<strong-initial-password>
-```
-
-The bootstrap admin is created only when the configured email does not already exist. Changing BOOTSTRAP_ADMIN_PASSWORD later does not overwrite an existing administrator password.
-
-## Authentication and roles
-
-Authentication uses bearer JWTs.
-
-### Public signup
-
-`POST /api/auth/signup` accepts an email and password without authentication. The API normalizes the email, stores a securely hashed password, creates the account as an active `viewer`, and returns a bearer session using the same response contract as login. Existing emails return `409 Conflict`.
-
-This keeps public registration separate from the admin-only user-management API: administrators can still create or update accounts and can grant operator/admin roles.
+A previously issued token therefore cannot keep working after the account is deactivated.
 
 ### Roles
 
@@ -200,311 +171,393 @@ This keeps public registration separate from the admin-only user-management API:
 |---|:---:|:---:|:---:|
 | Read telemetry | ✓ | ✓ | ✓ |
 | Read alerts | ✓ | ✓ | ✓ |
-| Acknowledge alerts |  | ✓ | ✓ |
+| Acknowledge alerts/incidents |  | ✓ | ✓ |
 | Simulation controls |  | ✓ | ✓ |
 | Read hosts | ✓ | ✓ | ✓ |
-| Create/update/delete hosts |  |  | ✓ |
+| Manage hosts |  |  | ✓ |
+| Manage API keys |  |  | ✓ |
+| Manage alert rules |  |  | ✓ |
+| Manage SLOs |  |  | ✓ |
 | Manage users |  |  | ✓ |
+| View audit/operational metrics |  |  | ✓ |
 
-The backend checks both the JWT and the current active database user. Deactivating a user therefore blocks access even when a previously issued token has not yet expired.
+Public signup creates an active viewer account. Admins can promote accounts through the existing user management API.
 
 ## REST API
 
-### Health
+### Public and authentication
 
-| Method | Endpoint | Access | Description |
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /health | Public |
+| GET | /ready | Public |
+| POST | /api/auth/login | Public |
+| POST | /api/auth/signup | Public |
+| GET | /api/auth/me | Authenticated |
+| POST | /api/auth/change-password | Authenticated |
+
+### Users and hosts
+
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/users | Admin |
+| POST | /api/users | Admin |
+| PATCH | /api/users/{user_id} | Admin |
+| GET | /api/hosts | Authenticated |
+| POST | /api/hosts | Admin |
+| PATCH | /api/hosts/{host_id} | Admin |
+| DELETE | /api/hosts/{host_id} | Admin |
+
+The backend protects the last active administrator and prevents an administrator from accidentally removing their own admin access.
+
+### Telemetry and streaming
+
+| Method | Endpoint | Access | Purpose |
 |---|---|---|---|
-| GET | /health | Public | Liveness information |
-| GET | /ready | Public | Database/application readiness |
+| GET | /api/telemetry/current | Authenticated | Current event |
+| GET | /api/telemetry/history | Authenticated | Time/host bounded history |
+| GET | /api/telemetry/stats | Authenticated | Database-side aggregate statistics |
+| POST | /api/ingest/v1/telemetry | Agent key | Host telemetry ingestion |
+| WS | /ws/telemetry?token=<jwt> | Authenticated | Live telemetry/alerts/system events |
 
-### Authentication
+History and statistics accept host/time-window filtering. Queries use a composite `(host_id, timestamp)` index.
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| POST | /api/auth/login | Public | Issue a bearer token |
-| POST | /api/auth/signup | Public | Create a viewer account and issue a bearer token |
-| GET | /api/auth/me | Authenticated | Return current user |
-| POST | /api/auth/change-password | Authenticated | Change current password |
+### Alerts, rules, and incidents
 
-### Users
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/alerts | Authenticated |
+| POST | /api/alerts/{alert_id}/acknowledge | Operator/Admin |
+| GET | /api/alert-rules | Admin |
+| POST | /api/alert-rules | Admin |
+| PATCH | /api/alert-rules/{rule_id} | Admin |
+| DELETE | /api/alert-rules/{rule_id} | Admin |
+| GET | /api/incidents | Authenticated |
+| GET | /api/incidents/{incident_id} | Authenticated |
+| POST | /api/incidents/{incident_id}/acknowledge | Operator/Admin |
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | /api/users | Admin | List users |
-| POST | /api/users | Admin | Create user |
-| PATCH | /api/users/{user_id} | Admin | Change role, status, or password |
+### Agent credentials
 
-The backend prevents an administrator from removing their own admin access and prevents the last active administrator account from being removed.
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/api-keys | Admin |
+| POST | /api/api-keys/hosts/{host_id} | Admin |
+| POST | /api/api-keys/{key_id}/revoke | Admin |
 
-### Hosts
+The plaintext secret is returned only at creation time. PostgreSQL stores only a SHA-256 digest and a short display prefix.
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | /api/hosts | Authenticated | List hosts |
-| POST | /api/hosts | Admin | Create host |
-| PATCH | /api/hosts/{host_id} | Admin | Update host |
-| DELETE | /api/hosts/{host_id} | Admin | Delete host |
+### SLOs
 
-The configured synthetic persistence host is system-managed while persistence is enabled.
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/slos | Authenticated |
+| GET | /api/slos/{slo_id}/status | Authenticated |
+| POST | /api/slos | Admin |
+| PATCH | /api/slos/{slo_id} | Admin |
+| DELETE | /api/slos/{slo_id} | Admin |
 
-### Telemetry
-
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | /api/telemetry/current | Authenticated | Latest telemetry event |
-| GET | /api/telemetry/history?limit=100 | Authenticated | Persistent history, with in-memory fallback |
-| GET | /api/telemetry/stats | Authenticated | Backend-computed aggregate statistics |
-
-### Alerts
-
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | /api/alerts?active_only=false | Authenticated | Alert history |
-| POST | /api/alerts/{alert_id}/acknowledge | Operator/Admin | Acknowledge an alert |
+The SLO status endpoint returns total/good/bad samples, SLI percentage, objective, error budget, remaining budget, and compliance.
 
 ### Simulation
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| GET | /api/simulation/status | Authenticated | Current engine state |
-| POST | /api/simulation/start | Operator/Admin | Start generation |
-| POST | /api/simulation/pause | Operator/Admin | Pause generation |
-| POST | /api/simulation/resume | Operator/Admin | Resume generation |
-| POST | /api/simulation/reset | Operator/Admin | Clear runtime and persisted synthetic state |
-| POST | /api/simulation/rate?rate=N | Operator/Admin | Set generation rate |
-| POST | /api/simulation/trigger | Operator/Admin | Inject a controlled anomaly |
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/simulation/status | Authenticated |
+| POST | /api/simulation/start | Operator/Admin |
+| POST | /api/simulation/pause | Operator/Admin |
+| POST | /api/simulation/resume | Operator/Admin |
+| POST | /api/simulation/reset | Operator/Admin |
+| POST | /api/simulation/rate?rate=N | Operator/Admin |
+| POST | /api/simulation/trigger | Operator/Admin |
 
-Supported anomaly metrics:
+The simulator remains valuable as a deterministic fault-injection harness for validating alerting and incident workflows without external infrastructure.
 
-```
-cpu
-memory
-temperature
-latency
-error_rate
-```
+### Internal observability
 
-## WebSocket
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/observability/metrics | Admin |
+| GET | /api/observability/metrics/prometheus | Admin |
+| GET | /api/observability/audit-logs | Admin |
 
-Endpoint:
+## Real host telemetry agent
 
-```
-ws://localhost:8000/ws/telemetry?token=<jwt>
-```
+The repository includes a free, open-source host agent under `agent/`.
 
-Use wss:// behind HTTPS.
+It collects:
 
-The WebSocket requires a valid JWT for an active database user.
+- CPU utilization
+- memory utilization
+- network throughput
+- available temperature sensors
+- optional HTTP probe latency and success/error signals
 
-### Message types
+The agent sends bounded batches to:
 
-Telemetry:
-
-```
-{
-  "type": "telemetry",
-  "data": {
-    "timestamp": "2026-09-18T10:00:00.000Z",
-    "sequence": 123,
-    "cpu": 63.4,
-    "memory": 71.2,
-    "temperature": 48.1,
-    "network_mbps": 82.4,
-    "requests_per_second": 421,
-    "error_rate": 0.8,
-    "latency_ms": 38.4
-  }
-}
+```text
+POST /api/ingest/v1/telemetry
+X-Telemetry-Key: tlm_<secret>
 ```
 
-Alert:
+### Windows / PowerShell example
 
-```
-{
-  "type": "alert",
-  "data": {
-    "id": "alert-1",
-    "timestamp": "2026-09-18T10:00:01.000Z",
-    "metric": "cpu",
-    "value": 95.2,
-    "baseline": 62.1,
-    "severity": "CRITICAL",
-    "message": "cpu anomaly detected",
-    "resolved": false,
-    "resolved_at": null,
-    "acknowledged": false
-  }
-}
+Create a host and an API key in the admin UI/API, then:
+
+```powershell
+$env:TELEMETRY_API_URL="http://localhost:8000"
+$env:TELEMETRY_API_KEY="tlm_<secret>"
+$env:TELEMETRY_AGENT_INTERVAL="2"
+$env:TELEMETRY_AGENT_BATCH_SIZE="10"
+
+uv run python -m agent.telemetry_agent --check
+uv run python -m agent.telemetry_agent
 ```
 
-System:
+The agent retries transient network/5xx failures with bounded exponential backoff, honors `Retry-After` for 429 responses, and refuses to retry a rejected credential.
 
-```
-{
-  "type": "system",
-  "data": {
-    "event": "rate_changed",
-    "message": "Telemetry rate changed to 50/sec"
-  }
-}
-```
+## Ingestion reliability
 
-System events cover lifecycle changes such as pause, resume, reset, rate changes, and anomaly triggers.
+The ingestion contract is intentionally designed around at-least-once delivery:
 
-## Telemetry and anomaly behavior
+1. The agent batches samples.
+2. A batch can be retried after a transient failure.
+3. Events are deduplicated by `(host_id, sequence)`.
+4. PostgreSQL enforces uniqueness as the final concurrency guard.
+5. Only successfully inserted events enter the live processing pipeline.
+6. Host `last_seen_at` and agent version are updated from accepted events.
 
-Telemetry can come from either bounded, correlated synthetic signals or the included real host telemetry agent.
+This makes retries safe without requiring Redis or a paid queueing service.
 
-The anomaly detector keeps a rolling window for each monitored metric:
+## Alerting model
 
-```
-z = (value - mean) / standard_deviation
-```
+There are two complementary detectors.
 
-Detection starts only after enough history has been collected. The defaults are:
+### Anomaly detector
 
-- minimum history: 30 events
-- rolling window: 100 events
-- threshold: 3.0
+A rolling z-score detects statistical deviation from a host-specific baseline:
 
-An anomaly above threshold is WARNING. A z-score more than twice the configured threshold is CRITICAL.
-
-## Persistence design
-
-Telemetry and alert persistence run asynchronously:
-
-1. The generation loop creates an event.
-2. The event is added to bounded in-memory state.
-3. The persistence worker receives it through a bounded queue.
-4. Database writes are performed in short-lived batches.
-5. Alert lifecycle changes are persisted independently.
-6. Failed persistence work is retained for retry.
-
-This keeps PostgreSQL latency out of the main telemetry generation path.
-
-Persistence can be disabled with:
-
-```
-TELEMETRY_PERSISTENCE_ENABLED=false
+```text
+z = (value - rolling_mean) / rolling_standard_deviation
 ```
 
-The live simulation still works in memory when persistence is disabled.
+Detection waits for enough history and maintains state per host and metric.
+
+### Rule engine
+
+Administrators can define deterministic rules such as:
+
+```text
+cpu >= 80 for 30 seconds
+latency_ms > 250
+error_rate >= 5
+memory > 90
+```
+
+Rules support:
+
+- comparison operators
+- sustained duration
+- cooldown
+- per-host state
+- enable/disable
+- deduplicated active alerts
+- explicit resolution
+
+This gives the platform both statistical detection and operator-defined policy.
+
+## Incident correlation
+
+The incident engine groups alert transitions for the same host inside a short correlation window.
+
+An incident tracks:
+
+- first/last seen time
+- severity escalation
+- associated alert IDs
+- active alert count
+- acknowledgement state
+- resolution time
+
+A newly arriving signal reopens an acknowledged incident so a fresh failure cannot remain hidden behind an old acknowledgement. Close-but-out-of-order events are also supported.
+
+Incident persistence is asynchronous and retries until the referenced alert is durable.
+
+## SLO and error budget
+
+SLOs evaluate persisted telemetry in PostgreSQL rather than loading the full dataset into Python.
+
+For each configured host and window the backend calculates:
+
+- total samples
+- good samples
+- bad samples
+- sample-based SLI
+- target objective
+- total error budget
+- remaining error budget
+- compliance state
+
+The implementation is deliberately explicit that the SLI is **sample-based**; it is not presented as a time-weighted availability calculation.
+
+## Self-observability
+
+The backend observes itself with dependency-free process metrics.
+
+Examples include:
+
+- generated telemetry count
+- ingested telemetry count
+- ingestion rejections
+- persistence drops
+- alert creation/resolution
+- incident creation/resolution
+- rule evaluations/fires/resolutions
+- WebSocket connections
+- current WebSocket clients
+- persistence queue depth
+- open incidents
+- HTTP request volume
+- HTTP 4xx/5xx counts
+- HTTP request duration sum/count
+
+`/api/observability/metrics/prometheus` emits Prometheus text format, so a local Prometheus/Grafana setup can consume the data without a paid service.
+
+## Security and abuse protection
+
+Security controls are intentionally built into the backend rather than left to deployment folklore:
+
+- Argon2 password hashing
+- JWT bearer authentication
+- active-user lookup on every authenticated request
+- role-based authorization
+- hashed machine credentials
+- revocable host-scoped API keys
+- public signup protection
+- login protection
+- ingestion protection
+- audit events for sensitive administration/operations
+- production startup rejection of known development secrets
+- no trust in client-controlled `X-Forwarded-For` for rate-limit identity
+
+The rate limiter is process-local by design. In a horizontally scaled deployment it would need shared state.
+
+## Persistence and performance
+
+Telemetry and alert writes are handled by bounded background workers.
+
+The hot path is:
+
+```text
+collect → validate → update memory → detect → rule-evaluate → correlate → broadcast
+```
+
+Database writes happen asynchronously.
+
+Queries use bounded limits and database-side aggregation. Telemetry filtering is indexed by host and timestamp.
+
+This keeps the architecture honest: it improves the single-process deployment without pretending that local memory is a distributed stream.
 
 ## Database migrations
 
-Apply migrations:
+Apply:
 
-```
+```bash
 uv run alembic upgrade head
 ```
 
-Show current migration:
+Inspect:
 
-```
+```bash
 uv run alembic current
 ```
 
 Create a migration after model changes:
 
-```
+```bash
 uv run alembic revision --autogenerate -m "describe the change"
 ```
 
 Review autogenerated migrations before committing them.
 
-## Testing
+The current migration chain is:
 
-Run the full suite:
-
+```text
+0001_initial_schema
+        ↓
+0002_observability_features
+        ↓
+0003_ingestion_idempotency
+        ↓
+0003_slos
+        ↓
+0004_telemetry_query_index
 ```
+
+## Testing strategy
+
+Run:
+
+```bash
 uv run pytest -q
 ```
 
-The test suite covers authentication, configuration security, database models, authorization, aggregation, anomaly detection, telemetry generation, persistence, manager lifecycle, health/readiness, simulation controls, REST APIs, WebSocket streaming, and alert lifecycle behavior.
+Coverage includes:
 
-CI also applies Alembic migrations against PostgreSQL before running tests.
+- authentication and signup
+- authorization and role boundaries
+- production configuration validation
+- rate limiter behavior
+- database model registration
+- telemetry generation
+- host-isolated anomaly detection
+- alert rule state machines
+- idempotent ingestion
+- API key creation/revocation
+- incident correlation/reopening/resolution
+- incident persistence rehydration
+- SLO/error-budget evaluation
+- request RED metrics
+- telemetry manager lifecycle
+- persistence behavior
+- REST route registration
+- simulation APIs
+- WebSocket behavior
+- integration flows from authentication through telemetry/alerts
+
+GitHub Actions starts PostgreSQL, applies Alembic migrations, runs the full suite, and verifies the final migration state.
 
 ## Docker
 
 Build:
 
-```
+```bash
 docker build -t telemetry-backend .
 ```
 
 Run:
 
-```
-docker run --rm \
-  -p 8000:8000 \
-  --env-file .env \
-  telemetry-backend
+```bash
+docker run --rm -p 8000:8000 --env-file .env telemetry-backend
 ```
 
-The image:
+The image runs as a non-root user. Apply database migrations separately before starting the application.
 
-- uses Python 3.13
-- installs production dependencies only
-- excludes test sources
-- runs as a non-root appuser
-- exposes port 8000
-- includes a /health Docker health check
+## Scaling boundary
 
-Run database migrations separately before starting the application.
+The current service intentionally uses a single process for real-time ownership.
 
-## CI
+That gives clear guarantees:
 
-GitHub Actions runs on pushes and pull requests targeting main.
+- one process owns live telemetry state
+- one process owns the in-memory rule/anomaly state
+- WebSocket subscribers receive the same process-local stream
+- PostgreSQL stores durable history
+- rate limiting and runtime metrics are process-local
 
-The backend workflow:
+A future multi-worker deployment would require shared coordination for at least rate limiting, alert/rule state, and WebSocket fan-out. PostgreSQL LISTEN/NOTIFY or another shared transport could be introduced only when the deployment actually needs it.
 
-1. starts PostgreSQL 16
-2. installs dependencies with uv
-3. applies Alembic migrations
-4. runs the full test suite
-5. verifies migration state
-
-## Operational notes
-
-This backend is intentionally a single-process V1 simulation service.
-
-That means:
-
-- one process owns the live telemetry state
-- all connected WebSocket clients receive the same live stream
-- runtime state is local to the process
-- PostgreSQL provides durable telemetry and operational history when persistence is enabled
-- Redis and a message broker are not required
-- rate limiting and internal metrics are intentionally process-local and observable
-
-The current version already includes a real host agent, host-scoped machine credentials, configurable alert rules, incident correlation, SLO/error-budget evaluation, audit logging, and Prometheus-compatible internal metrics.
+That boundary is intentional: the project demonstrates the difference between making a single-process system robust and falsely calling it horizontally scalable.
 
 ## License
 
 MIT
-
-
-## Production-oriented capabilities
-
-### Real host ingestion
-agent/telemetry_agent.py collects host CPU, memory, network, and available temperature signals with psutil and ships bounded batches over HTTPS. The ingestion endpoint authenticates a host-scoped API key and deduplicates events by host plus sequence.
-
-### Stateful alerting
-Alert rules evaluate thresholds in the telemetry hot path with sustained-duration and cooldown state per rule and host. This complements the existing rolling z-score anomaly detector.
-
-### Incident correlation
-Related alerts for the same host are grouped inside a short time window. Incidents track severity, acknowledgement, associated alerts, and resolution state, and are persisted asynchronously.
-
-### SLOs and error budgets
-SLO definitions evaluate persisted telemetry through database-side aggregates. Status exposes SLI percentage, objective, good/bad sample counts, remaining error budget, and compliance.
-
-### Self-observability
-Internal runtime metrics cover telemetry throughput, connected clients, alert activity, rule activity, incident state, and persistence queue depth/drop behavior. An admin-only Prometheus text endpoint is available for a local Prometheus/Grafana setup.
-
-### Security and auditability
-API keys are stored by hash and can be revoked. Public signup, login, and telemetry ingestion have dependency-free sliding-window abuse protection. Administrative operational actions are recorded with actor, resource, outcome, request IP, user agent, and timestamp.
-
-### Scaling tradeoff
-The current backend remains deliberately single-process. That makes the real-time state model explicit instead of pretending process-local state is horizontally distributed. A future multi-worker deployment would add shared coordination for rate limits and WebSocket fan-out.
-
-See agent/README.md for the Windows/PowerShell agent setup.
