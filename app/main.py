@@ -19,6 +19,7 @@ from app.api.incidents import router as incidents_router
 from app.api.ingestion import router as ingestion_router
 from app.api.observability import router as observability_router
 from app.api.simulation import router as simulation_router
+from app.api.slos import router as slos_router
 from app.api.telemetry import router as telemetry_router
 from app.api.users import router as users_router
 from app.api.websocket import router as websocket_router
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
     app.include_router(telemetry_router)
     app.include_router(alerts_router)
     app.include_router(simulation_router)
+    app.include_router(slos_router)
     app.include_router(websocket_router)
     app.include_router(api_keys_router)
     app.include_router(ingestion_router)
