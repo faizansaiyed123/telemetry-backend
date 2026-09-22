@@ -157,21 +157,23 @@ class TelemetryManager:
                     )
                     hydrated: list[Alert] = []
                     for row in active_rows:
-                        hydrated.append(
-                            Alert(
-                                id=row.id,
-                                timestamp=row.timestamp,
-                                metric=row.metric,
-                                value=row.value,
-                                baseline=row.baseline,
-                                severity=row.severity,
-                                message=row.message,
-                                acknowledged=row.acknowledged,
-                                host_id=row.host_id,
-                                source=row.source,
-                                rule_id=row.rule_id,
-                            )
+                        alert = Alert(
+                            id=row.id,
+                            timestamp=row.timestamp,
+                            metric=row.metric,
+                            value=row.value,
+                            baseline=row.baseline,
+                            severity=row.severity,
+                            message=row.message,
+                            acknowledged=row.acknowledged,
+                            host_id=row.host_id,
+                            source=row.source,
+                            rule_id=row.rule_id,
                         )
+                        hydrated.append(alert)
+                        key = f"rule:{row.rule_id}:{row.host_id or 'system'}"
+                        self._alerts.append(alert)
+                        self._active_alerts[key] = alert
                     self._alert_rule_engine.hydrate_active_alerts(hydrated)
         except Exception:
             logger.exception("Unable to load persisted alert rules/state")
