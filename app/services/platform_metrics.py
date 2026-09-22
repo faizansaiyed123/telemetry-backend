@@ -52,7 +52,7 @@ class PlatformMetrics:
         self._counters = {name: 0 for name in _COUNTER_NAMES}
         self._gauges = {name: 0 for name in _GAUGE_NAMES}
 
-    def increment(self, name: str, amount: int = 1) -> int:
+    def increment(self, name: str, amount: int | float = 1) -> int | float:
         with self._lock:
             self._counters[name] = self._counters.get(name, 0) + amount
             return self._counters[name]
