@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_authenticated, require_operator
 from app.db.session import get_db
-from app.models.db import User
-from app.models.observability import IncidentResponse
+from app.models.db import AlertRecord, ChangeEvent, User
+from app.models.observability import IncidentEvidenceResponse, IncidentResponse, IncidentTimelineItem
 from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
@@ -40,41 +41,6 @@ def list_incidents(
         incidents = [incident for incident in incidents if incident.status == status_filter]
     return [_response(incident) for incident in incidents]
 
-
-@router.get("/{incident_id}", response_model=IncidentResponse)
-def get_incident(
-    incident_id: str,
-    request: Request,
-    _: User = Depends(require_authenticated),
-) -> IncidentResponse:
-    incident = request.app.state.telemetry_manager.incident_engine.get(incident_id)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    return _response(incident)
-
-
-@router.post("/{incident_id}/acknowledge", response_model=IncidentResponse)
-def acknowledge_incident(
-    incident_id: str,
-    request: Request,
-    current_user: User = Depends(require_operator),
-    db: Session = Depends(get_db),
-) -> IncidentResponse:
-    engine = request.app.state.telemetry_manager.incident_engine
-    incident = engine.acknowledge(incident_id)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Active incident not found")
-
-    add_audit_log(
-        db,
-        request=request,
-        actor_user_id=current_user.id,
-        action="incident.acknowledged",
-        resource_type="incident",
-        resource_id=incident_id,
-    )
-    db.commit()
-    return _response(incident)
 
 
 @router.get("/{incident_id}/evidence", response_model=IncidentEvidenceResponse)
@@ -177,3 +143,39 @@ def get_incident_evidence(
         correlation_window_minutes=30,
         findings=findings,
     )
+
+
+@router.get("/{incident_id}", response_model=IncidentResponse)
+def get_incident(
+    incident_id: str,
+    request: Request,
+    _: User = Depends(require_authenticated),
+) -> IncidentResponse:
+    incident = request.app.state.telemetry_manager.incident_engine.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return _response(incident)
+
+
+@router.post("/{incident_id}/acknowledge", response_model=IncidentResponse)
+def acknowledge_incident(
+    incident_id: str,
+    request: Request,
+    current_user: User = Depends(require_operator),
+    db: Session = Depends(get_db),
+) -> IncidentResponse:
+    engine = request.app.state.telemetry_manager.incident_engine
+    incident = engine.acknowledge(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Active incident not found")
+
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="incident.acknowledged",
+        resource_type="incident",
+        resource_id=incident_id,
+    )
+    db.commit()
+    return _response(incident)
