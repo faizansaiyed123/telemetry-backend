@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("channel_type", sa.String(length=32), nullable=False, server_default="webhook"),
         sa.Column("webhook_url", sa.String(length=2048), nullable=False),
         sa.Column("min_severity", sa.String(length=16), nullable=False, server_default="WARNING"),
-        sa.Column("notify_alerts", sa.Boolean(), nullable=False, server_default=sa.true()),
+        sa.Column("notify_alerts", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("notify_incidents", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_by", sa.String(length=36), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
