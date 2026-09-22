@@ -31,6 +31,20 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/simulation/reset"),
     ("POST", "/api/simulation/rate"),
     ("POST", "/api/simulation/trigger"),
+    ("GET", "/api/api-keys"),
+    ("POST", "/api/api-keys/hosts/{host_id}"),
+    ("POST", "/api/api-keys/{key_id}/revoke"),
+    ("POST", "/api/ingest/v1/telemetry"),
+    ("GET", "/api/alert-rules"),
+    ("POST", "/api/alert-rules"),
+    ("PATCH", "/api/alert-rules/{rule_id}"),
+    ("DELETE", "/api/alert-rules/{rule_id}"),
+    ("GET", "/api/incidents"),
+    ("GET", "/api/incidents/{incident_id}"),
+    ("POST", "/api/incidents/{incident_id}/acknowledge"),
+    ("GET", "/api/observability/metrics"),
+    ("GET", "/api/observability/metrics/prometheus"),
+    ("GET", "/api/observability/audit-logs"),
 }
 
 
