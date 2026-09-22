@@ -488,9 +488,9 @@ The current migration chain is:
         ↓
 0003_ingestion_idempotency
         ↓
-0003_slos
+0004_slos
         ↓
-0004_telemetry_query_index
+0005_telemetry_query_index
 ```
 
 ## Testing strategy
