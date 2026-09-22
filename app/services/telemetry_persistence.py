@@ -6,7 +6,8 @@ import asyncio
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import insert, update
+from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.session import SessionLocal
 from app.models.db import Host, TelemetryRecord
@@ -120,13 +121,16 @@ class TelemetryPersistence:
                 "latency_ms": event.latency_ms,
                 "source": event.source,
                 "agent_version": event.agent_version,
-                "source": event.source,
-                "agent_version": event.agent_version,
             }
             for event in events
         ]
         with SessionLocal() as db:
-            db.execute(insert(TelemetryRecord), rows)
+            result = db.execute(
+                pg_insert(TelemetryRecord)
+                .values(rows)
+                .on_conflict_do_nothing(constraint="uq_telemetry_host_sequence")
+            )
+            inserted_count = max(result.rowcount or 0, 0)
             host_updates: dict[str, object] = {}
             for event in events:
                 host_id = event.host_id or self.host_id
@@ -140,4 +144,4 @@ class TelemetryPersistence:
                     .values(last_seen_at=last_seen_at)
                 )
             db.commit()
-        self.persisted_events += len(rows)
+        self.persisted_events += inserted_count
