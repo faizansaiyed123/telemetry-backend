@@ -148,3 +148,20 @@ class AuditLog(Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class SLO(Base):
+    __tablename__ = "slos"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    host_id: Mapped[str] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
+    metric: Mapped[str] = mapped_column(String(64))
+    operator: Mapped[str] = mapped_column(String(4))
+    threshold: Mapped[float] = mapped_column(Float)
+    objective_percent: Mapped[float] = mapped_column(Float)
+    window_hours: Mapped[int] = mapped_column(Integer, default=168)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
