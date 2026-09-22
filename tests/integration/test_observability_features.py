@@ -90,7 +90,7 @@ async def test_api_key_ingestion_is_idempotent_and_host_scoped(client: AsyncClie
     listed = await client.get(f"/api/api-keys?host_id={host_id}")
     assert listed.status_code == 200
     assert listed.json()[0]["host_id"] == host_id
-    assert listed.json()[0]["secret"] if False else True
+    assert "secret" not in listed.json()[0]
 
 
 @pytest.mark.asyncio
