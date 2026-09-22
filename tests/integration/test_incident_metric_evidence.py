@@ -81,7 +81,7 @@ async def test_incident_evidence_reports_metric_regression() -> None:
                 db.add_all(rows)
 
                 alert = Alert(
-                    id=f"evidence-regression-alert-{uuid4().hex}",
+                    id=str(uuid4()),
                     timestamp=incident_time,
                     metric="latency_ms",
                     value=250,
