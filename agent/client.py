@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import asdict
-
 import httpx
 
 from app.models.observability import IngestTelemetryBatch, IngestTelemetryEvent
@@ -137,7 +135,8 @@ class TelemetryAgent:
                     continue
 
                 response.raise_for_status()
-                self._buffer = [item for item in self._buffer if item not in samples]
+                # The batch is always a prefix of the single-threaded agent buffer.
+                self._buffer = self._buffer[len(samples):]
                 return
 
             raise RuntimeError("Telemetry batch was not accepted")
