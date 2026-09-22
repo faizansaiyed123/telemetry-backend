@@ -27,7 +27,8 @@ def _to_event(record: TelemetryRecord) -> TelemetryEvent:
         error_rate=record.error_rate,
         latency_ms=record.latency_ms,
         host_id=record.host_id,
-        source="agent" if record.host_id else "synthetic",
+        source=record.source,
+        agent_version=record.agent_version,
     )
 
 
