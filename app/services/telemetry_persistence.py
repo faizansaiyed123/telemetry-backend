@@ -118,6 +118,8 @@ class TelemetryPersistence:
                 "requests_per_second": event.requests_per_second,
                 "error_rate": event.error_rate,
                 "latency_ms": event.latency_ms,
+                "source": event.source,
+                "agent_version": event.agent_version,
             }
             for event in events
         ]
