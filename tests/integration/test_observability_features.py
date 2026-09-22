@@ -33,9 +33,17 @@ async def client():
             yield ac
 
 
-def event(sequence: int, *, cpu: float = 40.0, host_id: str | None = None, offset: int = 0) -> dict:
+def event(
+    sequence: int,
+    *,
+    cpu: float = 40.0,
+    host_id: str | None = None,
+    offset: int = 0,
+    base_time: datetime | None = None,
+) -> dict:
+    base = base_time or (datetime.now(timezone.utc) - timedelta(seconds=5))
     return {
-        "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=offset)).isoformat(),
+        "timestamp": (base + timedelta(seconds=offset)).isoformat(),
         "sequence": sequence,
         "cpu": cpu,
         "memory": 50.0,
@@ -224,6 +232,7 @@ async def test_incident_acknowledgement_is_audited(client: AsyncClient) -> None:
             "cooldown_seconds": 60,
         },
     )
+    assert created.status_code == 201
     manager = client._transport.app.state.telemetry_manager
     from app.models.telemetry import TelemetryEvent
 
@@ -363,9 +372,9 @@ async def test_slo_status_tracks_error_budget_and_database_aggregation(client: A
     base = datetime.now(timezone.utc) - timedelta(seconds=3)
     payload = {
         "events": [
-            event(1, cpu=10, offset=0),
-            event(2, cpu=95, offset=1),
-            event(3, cpu=20, offset=2),
+            event(1, cpu=10, offset=0, base_time=base),
+            event(2, cpu=95, offset=1, base_time=base),
+            event(3, cpu=20, offset=2, base_time=base),
         ],
         "agent_version": "slo-agent/1.0",
     }
