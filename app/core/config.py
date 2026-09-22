@@ -65,7 +65,7 @@ class Settings(BaseSettings):
             raise ValueError("value must be at least 1")
         return v
 
-    @field_validator("anomaly_z_threshold")
+    @field_validator("anomaly_z_threshold", "notification_timeout_seconds")
     @classmethod
     def validate_anomaly_z_threshold(cls, v: float) -> float:
         if v <= 0:
