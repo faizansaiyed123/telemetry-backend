@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -15,9 +16,12 @@ class TelemetryEvent(BaseModel):
     memory: float = Field(ge=0, le=100, description="Memory usage percentage")
     temperature: float = Field(ge=0, le=120, description="Temperature in Celsius")
     network_mbps: float = Field(ge=0, le=10000, description="Network throughput in Mbps")
-    requests_per_second: int = Field(ge=0, le=1000000, description="Requests per second")
+    requests_per_second: float = Field(ge=0, le=1000000, description="Requests per second")
     error_rate: float = Field(ge=0, le=100, description="Error rate percentage")
     latency_ms: float = Field(ge=0, le=10000, description="Latency in milliseconds")
+    host_id: str | None = Field(default=None, description="Host that produced the event")
+    source: str = Field(default="synthetic", pattern=r"^(synthetic|agent|api)$")
+    agent_version: str | None = None
 
     @field_validator("cpu", "memory", "error_rate")
     @classmethod
