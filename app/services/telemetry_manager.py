@@ -451,6 +451,11 @@ class TelemetryManager:
         return self._generator.active_anomaly
 
     @property
+    def ws_manager(self) -> WebSocketManager:
+        """Expose the WebSocket manager for integration and lifecycle callers."""
+        return self._ws_manager
+
+    @property
     def connected_clients(self) -> int:
         return self._ws_manager.client_count
 
