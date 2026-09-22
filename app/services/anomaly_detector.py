@@ -53,9 +53,7 @@ class AnomalyDetector:
         self.threshold = threshold
         self.window_size = window_size
         self.min_history = min_history
-        self._history: dict[str, deque[float]] = {
-            metric: deque(maxlen=window_size) for metric in METRICS_TO_MONITOR
-        }
+        self._history: dict[tuple[str, str], deque[float]] = {}
 
     def update(self, event: TelemetryEvent) -> list[AnomalyResult]:
         """Process a telemetry event and return any anomaly results.
@@ -68,9 +66,11 @@ class AnomalyDetector:
         """
         results: list[AnomalyResult] = []
 
+        host_key = str(event.host_id or "system")
         for metric in METRICS_TO_MONITOR:
             value = getattr(event, metric)
-            history = self._history[metric]
+            key = (host_key, metric)
+            history = self._history.setdefault(key, deque(maxlen=self.window_size))
             history.append(float(value))
 
             if len(history) < self.min_history:
@@ -129,4 +129,4 @@ class AnomalyDetector:
 
     def reset(self) -> None:
         """Clear all history."""
-        self._history = {metric: deque(maxlen=self.window_size) for metric in METRICS_TO_MONITOR}
+        self._history.clear()
