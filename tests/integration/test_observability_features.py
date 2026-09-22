@@ -338,7 +338,9 @@ async def test_resolved_incident_history_survives_runtime_rehydration(client: As
 
     incidents = await client.get("/api/incidents")
     assert incidents.status_code == 200
-    assert any(item["status"] == "resolved" for item in incidents.json())
+    resolved = [item for item in incidents.json() if item["status"] == "resolved"]
+    assert resolved
+    assert resolved[0]["resolved_at"] is not None
 
 
 @pytest.mark.asyncio
