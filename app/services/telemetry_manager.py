@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.alerts import Alert
-from app.models.db import AlertRecord, AlertRule, Host, Incident, TelemetryRecord
+from app.models.db import AlertRecord, AlertRule, Host, Incident, IncidentAlert, TelemetryRecord
 from app.models.telemetry import TelemetryEvent, TelemetryStats
 from app.services.aggregation import compute_stats
 from app.services.alert_persistence import AlertPersistence
@@ -146,17 +146,22 @@ class TelemetryManager:
         try:
             with SessionLocal() as db:
                 self.reload_alert_rules(db)
-                if self._persistence_host_id is not None:
+                # A pause/resume reuses the in-memory alert state. Only hydrate
+                # from the database for a genuinely fresh runtime.
+                if not self._alerts:
                     active_rows = list(
                         db.scalars(
-                            select(AlertRecord).where(
-                                AlertRecord.host_id == self._persistence_host_id,
-                                AlertRecord.status == "active",
-                                AlertRecord.source == "rule",
-                            )
+                            select(AlertRecord)
+                            .where(AlertRecord.status == "active")
+                            .order_by(AlertRecord.timestamp.asc())
                         )
                     )
-                    hydrated: list[Alert] = []
+                    incident_by_alert = dict(
+                        db.execute(
+                            select(IncidentAlert.alert_id, IncidentAlert.incident_id)
+                        ).all()
+                    )
+                    hydrated_rule_alerts: list[Alert] = []
                     for row in active_rows:
                         alert = Alert(
                             id=row.id,
@@ -170,12 +175,18 @@ class TelemetryManager:
                             host_id=row.host_id,
                             source=row.source,
                             rule_id=row.rule_id,
+                            incident_id=incident_by_alert.get(row.id),
                         )
-                        hydrated.append(alert)
-                        key = f"rule:{row.rule_id}:{row.host_id or 'system'}"
                         self._alerts.append(alert)
+                        key = (
+                            f"rule:{row.rule_id}:{row.host_id or 'system'}"
+                            if row.source == "rule" and row.rule_id
+                            else f"anomaly:{row.host_id or 'system'}:{row.metric}"
+                        )
                         self._active_alerts[key] = alert
-                    self._alert_rule_engine.hydrate_active_alerts(hydrated)
+                        if row.source == "rule" and row.rule_id:
+                            hydrated_rule_alerts.append(alert)
+                    self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
         except Exception:
             logger.exception("Unable to load persisted alert rules/state")
         self._task = asyncio.create_task(self._generation_loop())
