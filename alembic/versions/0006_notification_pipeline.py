@@ -48,11 +48,10 @@ def upgrade() -> None:
         sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
-    op.create_index(
+    op.create_unique_constraint(
         "uq_notification_delivery_event",
         "notification_deliveries",
         ["channel_id", "event_type", "event_id"],
-        unique=True,
     )
     op.create_index("ix_notification_deliveries_status", "notification_deliveries", ["status"])
     op.create_index("ix_notification_deliveries_next_attempt_at", "notification_deliveries", ["next_attempt_at"])
@@ -65,7 +64,7 @@ def downgrade() -> None:
     op.drop_index("ix_notification_deliveries_created_at", table_name="notification_deliveries")
     op.drop_index("ix_notification_deliveries_next_attempt_at", table_name="notification_deliveries")
     op.drop_index("ix_notification_deliveries_status", table_name="notification_deliveries")
-    op.drop_index("uq_notification_delivery_event", table_name="notification_deliveries")
+    op.drop_constraint("uq_notification_delivery_event", "notification_deliveries", type_="unique")
     op.drop_table("notification_deliveries")
     op.drop_index("ix_notification_channels_enabled", table_name="notification_channels")
     op.drop_index("ix_notification_channels_name", table_name="notification_channels")
