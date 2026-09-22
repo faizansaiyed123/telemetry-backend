@@ -40,5 +40,6 @@ def test_ws_token_is_single_use(app):
             first = ws.receive_json()
             assert first["type"] == "telemetry"
 
-        with pytest.raises(WebSocketDisconnect):
-            client.websocket_connect(f"/ws/telemetry?token={token}")
+        with client.websocket_connect(f"/ws/telemetry?token={token}") as ws_replayed:
+            with pytest.raises(WebSocketDisconnect):
+                ws_replayed.receive_json()
