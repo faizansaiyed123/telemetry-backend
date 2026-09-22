@@ -34,6 +34,7 @@ from app.core.rate_limit import RateLimitExceeded, rate_limiter
 from app.core.request_context import reset_request_id, set_request_id
 from app.services.platform_metrics import platform_metrics
 from app.services.telemetry_manager import TelemetryManager
+from app.services.telemetry_retention import TelemetryRetentionService
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,12 @@ async def lifespan(app: FastAPI):
         anomaly_threshold=settings.anomaly_z_threshold,
     )
     app.state.telemetry_manager = manager
+    retention = TelemetryRetentionService()
+    app.state.telemetry_retention = retention
     await manager.start()
+    await retention.start()
     yield
+    await retention.stop()
     await manager.stop()
     await manager.ws_manager.disconnect_all()
 
