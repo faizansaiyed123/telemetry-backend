@@ -119,7 +119,7 @@ def create_app() -> FastAPI:
             platform_metrics.increment("http_requests_total")
             platform_metrics.increment("http_5xx_total")
             platform_metrics.increment("http_request_duration_seconds_count")
-            platform_metrics.increment("http_request_duration_seconds_sum", int(duration * 1_000_000))
+            platform_metrics.increment("http_request_duration_seconds_sum", duration)
             raise
 
         duration = monotonic() - started
