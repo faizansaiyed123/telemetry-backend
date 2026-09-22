@@ -98,10 +98,17 @@ def create_app() -> FastAPI:
                 rate_limiter.check(rate_key, limit=10, window_seconds=60)
             except RateLimitExceeded as exc:
                 platform_metrics.increment("auth_rate_limited_total")
+                reset_request_id(token)
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many failed authentication attempts", "retry_after": exc.retry_after},
-                    headers={"Retry-After": str(exc.retry_after), "X-Request-ID": request_id},
+                    headers={
+                        "Retry-After": str(exc.retry_after),
+                        "X-Request-ID": request_id,
+                        "X-Content-Type-Options": "nosniff",
+                        "X-Frame-Options": "DENY",
+                        "Referrer-Policy": "no-referrer",
+                    },
                 )
         elif request.method == "POST" and path == "/api/auth/signup":
             rate_key = f"signup:{_client_key(request)}"
@@ -112,7 +119,13 @@ def create_app() -> FastAPI:
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many signup attempts", "retry_after": exc.retry_after},
-                    headers={"Retry-After": str(exc.retry_after)},
+                    headers={
+                        "Retry-After": str(exc.retry_after),
+                        "X-Request-ID": request_id,
+                        "X-Content-Type-Options": "nosniff",
+                        "X-Frame-Options": "DENY",
+                        "Referrer-Policy": "no-referrer",
+                    },
                 )
         elif request.method == "POST" and path == "/api/ingest/v1/telemetry":
             credential = request.headers.get("x-telemetry-key") or _client_key(request)
@@ -123,10 +136,17 @@ def create_app() -> FastAPI:
                 rate_limiter.check(rate_key, limit=120, window_seconds=60)
             except RateLimitExceeded as exc:
                 platform_metrics.increment("ingestion_rate_limited_total")
+                reset_request_id(token)
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many ingestion requests", "retry_after": exc.retry_after},
-                    headers={"Retry-After": str(exc.retry_after)},
+                    headers={
+                        "Retry-After": str(exc.retry_after),
+                        "X-Request-ID": request_id,
+                        "X-Content-Type-Options": "nosniff",
+                        "X-Frame-Options": "DENY",
+                        "Referrer-Policy": "no-referrer",
+                    },
                 )
 
         started = monotonic()
@@ -138,6 +158,7 @@ def create_app() -> FastAPI:
             platform_metrics.increment("http_5xx_total")
             platform_metrics.increment("http_request_duration_seconds_count")
             platform_metrics.increment("http_request_duration_seconds_sum", duration)
+            reset_request_id(token)
             raise
 
         duration = monotonic() - started
@@ -151,6 +172,17 @@ def create_app() -> FastAPI:
 
         if path == "/api/auth/login" and response.status_code < 400 and rate_key is not None:
             rate_limiter.clear(rate_key)
+
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Cache-Control"] = "no-store"
+        if settings.app_env.strip().lower() == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+        reset_request_id(token)
         return response
 
     app.add_middleware(
