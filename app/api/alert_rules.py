@@ -74,6 +74,8 @@ async def update_alert_rule(
         raise HTTPException(status_code=404, detail="Alert rule not found")
 
     values = payload.model_dump(exclude_unset=True)
+        if not values["name"]:
+            raise HTTPException(status_code=422, detail="Rule name must not be blank")
     if "name" in values and db.scalar(
         select(AlertRule).where(AlertRule.name == values["name"], AlertRule.id != rule.id)
     ):
