@@ -265,6 +265,7 @@ class TelemetryManager:
             self._anomaly_detector.reset()
             self._alert_rule_engine.reset()
             self._incident_engine = IncidentEngine()
+            self._pending_incident_notifications.clear()
             self._start_time = utc_now() if was_running else self._start_time
 
         await self._ws_manager.disconnect_all()
@@ -321,7 +322,9 @@ class TelemetryManager:
                 self._persistence.enqueue(event)
 
             anomaly_results = self._anomaly_detector.update(event)
-            alerts_to_broadcast.extend(self._process_anomaly_results(anomaly_results, event))
+            anomaly_alerts = self._process_anomaly_results(anomaly_results, event)
+            alerts_to_broadcast.extend(anomaly_alerts)
+            notification_alerts.extend(alert for alert in anomaly_alerts if not alert.resolved)
 
             for transition in self._alert_rule_engine.evaluate(event):
                 alert = self._apply_rule_transition(transition)
