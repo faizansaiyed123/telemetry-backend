@@ -166,7 +166,7 @@ class IncidentEngine:
     def hydrate(self) -> None:
         with SessionLocal() as db:
             rows = db.scalars(
-                select(Incident).where(Incident.status.in_(("open", "acknowledged")))
+                select(Incident).order_by(Incident.last_seen_at.desc())
             )
             for incident in rows:
                 state = IncidentState(
