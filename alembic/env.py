@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import get_settings
 from app.db.session import Base
 from app.models.db import AlertRecord, Host, TelemetryRecord, User
+from app.models.observability import ApiKeyRecord, AlertRuleRecord, AuditLogRecord, IncidentRecord
 
 config = context.config
 settings = get_settings()
