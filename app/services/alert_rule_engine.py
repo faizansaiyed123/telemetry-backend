@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from uuid import uuid4
 
@@ -36,17 +36,16 @@ def _matches(value: float, operator: str, threshold: float) -> bool:
     return False
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 class AlertRuleEngine:
-    """Evaluate configurable rules without doing database work on the hot path."""
+    """Evaluate configurable rules without database work on the hot path."""
 
     def __init__(self) -> None:
         self._lock = Lock()
         self._rules: dict[str, dict[str, object]] = {}
         self._states: dict[tuple[str, str], RuleState] = {}
+        self.evaluations = 0
+        self.fires = 0
+        self.resolutions = 0
 
     def load_rules(self, rules: list[object]) -> None:
         with self._lock:
@@ -65,11 +64,24 @@ class AlertRuleEngine:
                 for rule in rules
                 if rule.metric in ALERT_RULE_METRICS
             }
-            active_keys = set()
-            for key in self._states:
-                if key[0] in self._rules:
-                    active_keys.add(key)
-            self._states = {key: state for key, state in self._states.items() if key in active_keys}
+            self._states = {
+                key: state
+                for key, state in self._states.items()
+                if key[0] in self._rules
+            }
+
+    def hydrate_active_alerts(self, alerts: list[Alert]) -> None:
+        """Restore active rule alert state after an application restart."""
+        with self._lock:
+            for alert in alerts:
+                if alert.source != "rule" or not alert.rule_id:
+                    continue
+                host_key = str(alert.host_id or "system")
+                self._states[(alert.rule_id, host_key)] = RuleState(
+                    condition_since=alert.timestamp,
+                    last_fired_at=alert.timestamp,
+                    active_alert_id=alert.id,
+                )
 
     def upsert_rule(self, rule: object) -> None:
         with self._lock:
@@ -85,9 +97,7 @@ class AlertRuleEngine:
                 "enabled": bool(rule.enabled),
             }
             self._states = {
-                key: state
-                for key, state in self._states.items()
-                if key[0] != str(rule.id)
+                key: state for key, state in self._states.items() if key[0] != str(rule.id)
             }
 
     def remove_rule(self, rule_id: str) -> None:
@@ -100,17 +110,18 @@ class AlertRuleEngine:
     def evaluate(self, event: object) -> list[RuleTransition]:
         """Evaluate every enabled rule for one telemetry event."""
         transitions: list[RuleTransition] = []
-        host_id = getattr(event, "host_id", None) or "system"
-        timestamp = getattr(event, "timestamp", None) or _utc_now()
+        host_key = str(getattr(event, "host_id", None) or "system")
+        timestamp = getattr(event, "timestamp", None) or datetime.now(timezone.utc)
 
         with self._lock:
             for rule in self._rules.values():
                 if not bool(rule["enabled"]):
                     continue
 
+                self.evaluations += 1
                 metric = str(rule["metric"])
                 value = float(getattr(event, metric))
-                key = (str(rule["id"]), str(host_id))
+                key = (str(rule["id"]), host_key)
                 state = self._states.setdefault(key, RuleState())
                 condition_met = _matches(value, str(rule["operator"]), float(rule["threshold"]))
 
@@ -145,6 +156,7 @@ class AlertRuleEngine:
                         )
                         state.active_alert_id = alert.id
                         state.last_fired_at = timestamp
+                        self.fires += 1
                         transitions.append(RuleTransition(alert=alert, action="created"))
                 else:
                     state.condition_since = None
@@ -167,6 +179,7 @@ class AlertRuleEngine:
                             rule_id=str(rule["id"]),
                         )
                         state.active_alert_id = None
+                        self.resolutions += 1
                         transitions.append(RuleTransition(alert=alert, action="resolved"))
 
         return transitions
