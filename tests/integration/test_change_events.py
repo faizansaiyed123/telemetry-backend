@@ -102,8 +102,8 @@ async def test_incident_evidence_contains_alert_and_nearby_change(client: AsyncC
         severity=Severity.CRITICAL,
         message="latency_ms exceeded SLO threshold",
         host_id=host_id,
-        source="rule",
-        rule_id="rule-evidence",
+        source="api",
+        rule_id=None,
     )
     incident = manager.incident_engine.on_alert_created(alert)
 
