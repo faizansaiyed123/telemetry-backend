@@ -183,6 +183,8 @@ A previously issued token therefore cannot keep working after the account is dea
 
 Public signup creates an active viewer account. Admins can promote accounts through the existing user management API.
 
+The browser obtains a short-lived, single-use WebSocket handoff token from `POST /api/auth/ws-token`. The live socket accepts only that scoped token, which limits exposure of the long-lived API JWT in URL logs and prevents a captured handoff token from being reused.
+
 ## REST API
 
 ### Public and authentication
@@ -195,6 +197,7 @@ Public signup creates an active viewer account. Admins can promote accounts thro
 | POST | /api/auth/signup | Public |
 | GET | /api/auth/me | Authenticated |
 | POST | /api/auth/change-password | Authenticated |
+| POST | /api/auth/ws-token | Authenticated |
 
 ### Users and hosts
 
@@ -218,7 +221,7 @@ The backend protects the last active administrator and prevents an administrator
 | GET | /api/telemetry/history | Authenticated | Time/host bounded history |
 | GET | /api/telemetry/stats | Authenticated | Database-side aggregate statistics |
 | POST | /api/ingest/v1/telemetry | Agent key | Host telemetry ingestion |
-| WS | /ws/telemetry?token=<jwt> | Authenticated | Live telemetry/alerts/system events |
+| WS | /ws/telemetry?token=<one-time-token> | Authenticated | Live telemetry/alerts/system events |
 
 History and statistics accept host/time-window filtering. Queries use a composite `(host_id, timestamp)` index.
 
