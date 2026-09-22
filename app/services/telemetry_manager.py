@@ -366,7 +366,7 @@ class TelemetryManager:
             if result.is_anomaly:
                 if key not in self._active_alerts:
                     alert = Alert(
-                        id=f"alert-{self._sequence}-{metric}-{host_key}",
+                        id=uuid4().hex,
                         timestamp=event.timestamp,
                         metric=metric,
                         value=result.value,
