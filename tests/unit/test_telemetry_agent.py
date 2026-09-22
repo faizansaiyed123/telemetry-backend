@@ -37,3 +37,16 @@ def test_host_collector_emits_valid_bounded_sample():
     assert sample["requests_per_second"] == 0
     assert sample["error_rate"] == 0
     assert sample["latency_ms"] == 0
+
+
+def test_host_collector_sequence_is_restart_safe():
+    collector = HostCollector(None)
+    first = collector.collect()
+    second = collector.collect()
+    assert second["sequence"] > first["sequence"]
+
+
+def test_agent_check_mode_does_not_require_credentials(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["telemetry-agent", "--check"])
+    from agent.telemetry_agent import main
+    assert main() == 0
