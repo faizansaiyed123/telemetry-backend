@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.models.db import User
 from app.models.observability import ApiKeyRecord
 from app.services.api_keys import TELEMETRY_WRITE_SCOPE, hash_api_key, has_scope
-from app.services.time import utc_now
+from app.utils.time import utc_now
 
 
 def require_authenticated(current_user: User = Depends(get_current_user)) -> User:
