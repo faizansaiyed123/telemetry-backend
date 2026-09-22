@@ -41,5 +41,5 @@ filterwarnings = [
 package = true
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "agent*"]
 exclude = ["tests*", "alembic*"]
