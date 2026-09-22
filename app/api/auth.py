@@ -18,7 +18,6 @@ from app.models.db import User
 from app.services.audit import add_audit_log, write_security_audit
 
 logger = logging.getLogger(__name__)
-from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -82,26 +81,29 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 @router.post("/login", response_model=TokenResponse)
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    request: Request = None,
     db: Session = Depends(get_db),
 ):
-    user = db.scalar(select(User).where(User.email == form_data.username.lower()))
+    email = form_data.username.strip().lower()
+    user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(form_data.password, user.password_hash):
+        try:
+            write_security_audit(
+                request=request,
+                actor_user_id=None,
+                action="auth.login_failed",
+                outcome="failure",
+                details={"email": email[:320]},
+            )
+        except Exception:
+            logger.exception("Unable to write failed-login audit event")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    add_audit_log(
-        db,
-        request=request,
-        actor_user_id=user.id,
-        action="auth.login",
-        resource_type="user",
-        resource_id=user.id,
-    )
-    db.commit()
+
     add_audit_log(
         db,
         request=request,
@@ -149,9 +151,10 @@ def signup(
         db,
         request=request,
         actor_user_id=user.id,
-        action="auth.signup",
+        action="auth.signup_succeeded",
         resource_type="user",
         resource_id=user.id,
+        details={"email": user.email, "role": user.role},
     )
     db.commit()
     return {"access_token": create_access_token(user.id, user.role), "user": user}
@@ -170,6 +173,11 @@ def change_password(
     db: Session = Depends(get_db),
 ) -> ChangePasswordResponse:
     if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if payload.current_password == payload.new_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
