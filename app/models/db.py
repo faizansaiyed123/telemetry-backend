@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -70,8 +70,10 @@ class AlertRule(Base):
 
 class TelemetryRecord(Base):
     __tablename__ = "telemetry_records"
-    __table_args__ = (Index("ix_telemetry_host_timestamp", "host_id", "timestamp"),)
-    __table_args__ = (UniqueConstraint("host_id", "sequence", name="uq_telemetry_host_sequence"),)
+    __table_args__ = (
+        UniqueConstraint("host_id", "sequence", name="uq_telemetry_host_sequence"),
+        Index("ix_telemetry_host_timestamp", "host_id", "timestamp"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     host_id: Mapped[str] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
