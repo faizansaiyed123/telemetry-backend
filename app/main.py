@@ -129,7 +129,7 @@ def create_app() -> FastAPI:
         elif response.status_code >= 400:
             platform_metrics.increment("http_4xx_total")
         platform_metrics.increment("http_request_duration_seconds_count")
-        platform_metrics.increment("http_request_duration_seconds_sum", int(duration * 1_000_000))
+        platform_metrics.increment("http_request_duration_seconds_sum", duration)
 
         if path == "/api/auth/login" and response.status_code < 400 and rate_key is not None:
             rate_limiter.clear(rate_key)
