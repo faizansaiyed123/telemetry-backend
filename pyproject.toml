@@ -7,6 +7,9 @@ requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Telemetry Backend" }]
 
+[project.scripts]
+telemetry-agent = "agent.telemetry_agent:main"
+
 dependencies = [
     "fastapi>=0.115.0,<0.116.0",
     "uvicorn[standard]>=0.30.0,<0.32.0",
