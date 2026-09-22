@@ -89,8 +89,12 @@ async def test_change_event_rejects_inactive_or_unknown_host(client: AsyncClient
 @pytest.mark.asyncio
 async def test_incident_evidence_contains_alert_and_nearby_change(client: AsyncClient) -> None:
     manager = client._transport.app.state.telemetry_manager
-    host_id = manager.persistence_host_id
-    assert host_id is not None
+    created_host = await client.post(
+        "/api/hosts",
+        json={"name": "evidence-isolated-host", "environment": "test"},
+    )
+    assert created_host.status_code == 201, created_host.text
+    host_id = created_host.json()["id"]
 
     timestamp = utc_now() - timedelta(minutes=5)
     alert = Alert(
