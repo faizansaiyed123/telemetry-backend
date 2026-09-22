@@ -8,6 +8,7 @@ latency, and error signals without requiring a paid monitoring service.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import time
@@ -146,8 +147,7 @@ class HostCollector:
         config: AgentConfig,
     ) -> list[dict]:
         delay = 1.0
-        remaining = events
-        while remaining:
+        for attempt in range(5):
             try:
                 response = client.post(
                     endpoint,
@@ -160,10 +160,13 @@ class HostCollector:
                 return []
             except RuntimeError:
                 raise
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
+                if attempt == 4:
+                    logger.warning("Telemetry delivery failed after %d attempts: %s", attempt + 1, exc)
+                    return events
                 time.sleep(min(delay, 8.0))
                 delay = min(delay * 2, 8.0)
-        return remaining
+        return events
 
 
 def parse_args() -> argparse.Namespace:
