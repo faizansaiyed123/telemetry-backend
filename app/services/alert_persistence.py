@@ -108,6 +108,9 @@ class AlertPersistence:
                         acknowledged=alert.acknowledged,
                         timestamp=alert.timestamp,
                         resolved_at=alert.resolved_at,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
+                        incident_id=alert.incident_id,
                     )
                 )
             else:
@@ -122,6 +125,9 @@ class AlertPersistence:
                         status="resolved" if alert.resolved else "active",
                         acknowledged=existing.acknowledged or alert.acknowledged,
                         resolved_at=alert.resolved_at,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
+                        incident_id=alert.incident_id,
                     )
                 )
             db.commit()
