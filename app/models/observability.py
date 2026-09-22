@@ -142,3 +142,74 @@ class AuditLogResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+SLO_METRICS = ALERT_RULE_METRICS
+SLO_OPERATORS = ALERT_RULE_OPERATORS
+
+
+class SLOCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    host_id: str
+    metric: str = Field(pattern=r"^(cpu|memory|temperature|network_mbps|requests_per_second|error_rate|latency_ms)$")
+    operator: str = Field(pattern=r"^(>|>=|<|<=)$")
+    threshold: float
+    objective_percent: float = Field(gt=0, le=100)
+    window_hours: int = Field(default=168, ge=1, le=24 * 30)
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("SLO name must not be blank")
+        return normalized
+
+
+class SLOUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    host_id: str | None = None
+    metric: str | None = Field(default=None, pattern=r"^(cpu|memory|temperature|network_mbps|requests_per_second|error_rate|latency_ms)$")
+    operator: str | None = Field(default=None, pattern=r"^(>|>=|<|<=)$")
+    threshold: float | None = None
+    objective_percent: float | None = Field(default=None, gt=0, le=100)
+    window_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    enabled: bool | None = None
+
+
+class SLOResponse(BaseModel):
+    id: str
+    name: str
+    host_id: str
+    metric: str
+    operator: str
+    threshold: float
+    objective_percent: float
+    window_hours: int
+    enabled: bool
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SLOStatusResponse(BaseModel):
+    slo_id: str
+    name: str
+    host_id: str
+    metric: str
+    operator: str
+    threshold: float
+    objective_percent: float
+    window_hours: int
+    window_start: datetime
+    window_end: datetime
+    total_samples: int
+    good_samples: int
+    bad_samples: int
+    sli_percent: float
+    error_budget_percent: float
+    error_budget_remaining_percent: float
+    compliant: bool
