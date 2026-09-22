@@ -10,6 +10,8 @@ class TelemetryEvent(BaseModel):
     """A single telemetry event representing a point-in-time system snapshot."""
 
     timestamp: datetime
+    host_id: str | None = None
+    source: str = "simulation"
     sequence: int = Field(ge=0, description="Monotonically increasing sequence number")
     cpu: float = Field(ge=0, le=100, description="CPU usage percentage")
     memory: float = Field(ge=0, le=100, description="Memory usage percentage")
