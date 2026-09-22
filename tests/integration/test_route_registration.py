@@ -64,3 +64,18 @@ def test_telemetry_websocket_route_is_registered() -> None:
     app = create_app()
     websocket_paths = {route.path for route in app.routes if route.__class__.__name__ == "APIWebSocketRoute"}
     assert "/ws/telemetry" in websocket_paths
+
+
+def test_no_duplicate_http_method_paths_are_registered() -> None:
+    app = create_app()
+    seen = set()
+    duplicates = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for method in route.methods:
+            key = (method, route.path)
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+    assert duplicates == []
