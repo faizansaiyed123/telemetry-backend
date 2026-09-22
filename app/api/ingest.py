@@ -47,9 +47,10 @@ class IngestTelemetryRequest(BaseModel):
 
 class IngestTelemetryResponse(BaseModel):
     status: str
+    received: int
     accepted: int
-    queued: int
-    dropped: int
+    queued_for_persistence: int
+    dropped_from_persistence: int
     host_id: str
     agent_version: str
 
@@ -62,13 +63,14 @@ async def ingest_telemetry(
 ) -> IngestTelemetryResponse:
     manager = request.app.state.telemetry_manager
     events = [item.to_event(credential.host_id) for item in payload.events]
-    queued = await manager.ingest_external(events, credential.host_id)
-    dropped = len(events) - queued
+    accepted, queued = await manager.ingest_external(events, credential.host_id)
+    dropped = accepted - queued if manager._persistence is not None else 0
     return IngestTelemetryResponse(
         status="accepted",
-        accepted=len(events) - dropped,
-        queued=queued,
-        dropped=dropped,
+        received=len(events),
+        accepted=accepted,
+        queued_for_persistence=queued,
+        dropped_from_persistence=dropped,
         host_id=credential.host_id,
         agent_version=payload.agent_version,
     )
