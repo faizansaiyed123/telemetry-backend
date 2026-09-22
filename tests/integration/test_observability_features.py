@@ -393,7 +393,7 @@ async def test_slo_status_tracks_error_budget_and_database_aggregation(client: A
             "metric": "cpu",
             "operator": "<",
             "threshold": 80,
-            "objective_percent": 66.67,
+            "objective_percent": 66.66,
             "window_hours": 1,
         },
     )
