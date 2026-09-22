@@ -192,6 +192,7 @@ class IncidentEngine:
                     severity=incident.severity,
                     first_seen_at=incident.first_seen_at,
                     last_seen_at=incident.last_seen_at,
+                    resolved_at=incident.resolved_at,
                 )
                 for link in db.scalars(
                     select(IncidentAlert).where(IncidentAlert.incident_id == incident.id)
@@ -273,7 +274,9 @@ class IncidentEngine:
         incident.status = "acknowledged"
         incident.last_seen_at = datetime.now(timezone.utc)
         if self._persistence is not None:
-            self._persistence.enqueue(IncidentPersistenceEvent(incident=incident))
+            self._persistence.enqueue(
+                IncidentPersistenceEvent(incident=incident.snapshot())
+            )
         return incident
 
     def clear_host(self, host_id: str) -> None:
