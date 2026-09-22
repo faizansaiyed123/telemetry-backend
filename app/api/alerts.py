@@ -32,6 +32,9 @@ def _to_alert(record: AlertRecord) -> Alert:
         resolved=record.status == "resolved",
         resolved_at=record.resolved_at,
         acknowledged=record.acknowledged,
+        host_id=record.host_id,
+        source=record.source,
+        rule_id=record.rule_id,
     )
 
 
@@ -48,13 +51,20 @@ def get_alerts(
         stmt = stmt.where(AlertRecord.status == "active")
 
     records = list(db.scalars(stmt))
-    if records:
-        alerts = [_to_alert(record) for record in records]
-    else:
-        # Persistence may be disabled (or briefly empty while its async worker
-        # is catching up). Keep the live alert API useful in that case.
-        manager = request.app.state.telemetry_manager
-        alerts = manager.get_alerts(active_only=active_only)
+    persisted = [_to_alert(record) for record in records]
+    manager = request.app.state.telemetry_manager
+    live = manager.get_alerts(active_only=active_only)
+
+    # Prefer live state for IDs that are still being updated asynchronously,
+    # then include persisted history not yet present in memory.
+    by_id = {alert.id: alert for alert in persisted}
+    for alert in live:
+        by_id[alert.id] = alert
+    alerts = sorted(
+        by_id.values(),
+        key=lambda alert: alert.timestamp,
+        reverse=True,
+    )[:200]
 
     return AlertsResponse(
         alerts=alerts,
