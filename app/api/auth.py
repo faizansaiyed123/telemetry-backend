@@ -86,6 +86,17 @@ def login(
     email = form_data.username.strip().lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(form_data.password, user.password_hash):
+        add_audit_log(
+            db,
+            request=request,
+            actor_user_id=user.id if user is not None else None,
+            action="auth.login_failed",
+            resource_type="user",
+            resource_id=user.id if user is not None else None,
+            outcome="failure",
+            details={"reason": "invalid_credentials"},
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
