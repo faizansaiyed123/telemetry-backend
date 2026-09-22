@@ -68,6 +68,7 @@ def create_slo(
         created_by=current_user.id,
     )
     db.add(slo)
+    db.flush()
     add_audit_log(
         db,
         request=request,
