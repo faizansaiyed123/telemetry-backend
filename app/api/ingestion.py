@@ -47,8 +47,16 @@ async def ingest_telemetry(
     for event in events:
         await manager.process_event(event, persist=False)
 
+    accepted = len(events)
+    received = len(payload.events)
+    deduplicated = received - accepted
+    if deduplicated:
+        platform_metrics.increment("telemetry_ingestion_deduplicated_total", deduplicated)
+
     return IngestResponse(
         host_id=host.id,
-        accepted=len(events),
+        received=received,
+        accepted=accepted,
+        deduplicated=deduplicated,
         last_sequence=max(item.sequence for item in payload.events),
     )

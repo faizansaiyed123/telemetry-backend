@@ -14,6 +14,7 @@ from app.api.alert_rules import router as alert_rules_router
 from app.api.alerts import router as alerts_router
 from app.api.api_keys import router as api_keys_router
 from app.api.auth import router as auth_router
+from app.api.changes import router as changes_router
 from app.api.health import router as health_router
 from app.api.hosts import router as hosts_router
 from app.api.incidents import router as incidents_router
@@ -144,6 +145,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(changes_router)
     app.include_router(users_router)
     app.include_router(hosts_router)
     app.include_router(telemetry_router)
