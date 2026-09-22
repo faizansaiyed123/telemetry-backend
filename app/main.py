@@ -21,6 +21,7 @@ from app.api.health import router as health_router
 from app.api.hosts import router as hosts_router
 from app.api.incidents import router as incidents_router
 from app.api.ingestion import router as ingestion_router
+from app.api.notification_channels import router as notification_channels_router
 from app.api.observability import router as observability_router
 from app.api.simulation import router as simulation_router
 from app.api.slos import router as slos_router
@@ -32,6 +33,7 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitExceeded, rate_limiter
 from app.core.request_context import reset_request_id, set_request_id
+from app.services.notification_dispatcher import NotificationDispatcher
 from app.services.platform_metrics import platform_metrics
 from app.services.telemetry_manager import TelemetryManager
 from app.services.telemetry_retention import TelemetryRetentionService
@@ -57,6 +59,14 @@ async def lifespan(app: FastAPI):
         telemetry_rate=settings.telemetry_rate,
         max_rate=settings.max_telemetry_rate,
         anomaly_threshold=settings.anomaly_z_threshold,
+        notification_dispatcher=(
+            NotificationDispatcher(
+                queue_size=settings.notification_queue_size,
+                timeout_seconds=settings.notification_timeout_seconds,
+            )
+            if settings.notification_enabled
+            else None
+        ),
     )
     app.state.telemetry_manager = manager
     retention = TelemetryRetentionService()
@@ -207,6 +217,7 @@ def create_app() -> FastAPI:
     app.include_router(alert_rules_router)
     app.include_router(incidents_router)
     app.include_router(observability_router)
+    app.include_router(notification_channels_router)
     return app
 
 
