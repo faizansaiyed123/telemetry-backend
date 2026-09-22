@@ -1,5 +1,5 @@
 from app.db.session import Base
-from app.models.db import AlertRecord, Host, TelemetryRecord, User
+from app.models.db import AlertRecord, Host, SLO, TelemetryRecord, User
 
 
 def test_persistent_models_are_registered() -> None:
@@ -13,6 +13,7 @@ def test_persistent_models_are_registered() -> None:
         "incidents",
         "incident_alerts",
         "audit_logs",
+        "slos",
     }
 
 
