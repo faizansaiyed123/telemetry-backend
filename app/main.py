@@ -70,26 +70,47 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def abuse_protection(request: Request, call_next):
         path = request.url.path
-        try:
-            if request.method == "POST" and path == "/api/auth/login":
-                rate_limiter.check(f"login:{_client_key(request)}", limit=10, window_seconds=60)
-            elif request.method == "POST" and path == "/api/auth/signup":
-                rate_limiter.check(f"signup:{_client_key(request)}", limit=5, window_seconds=60)
-            elif request.method == "POST" and path == "/api/ingest/v1/telemetry":
-                credential = request.headers.get("x-telemetry-key") or _client_key(request)
-                rate_limiter.check(f"ingest:{credential}", limit=120, window_seconds=60)
-        except RateLimitExceeded as exc:
-            if path.startswith("/api/auth/"):
-                platform_metrics.increment("auth_rate_limited_total")
-            elif path.startswith("/api/ingest/"):
-                platform_metrics.increment("ingestion_rate_limited_total")
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Too many requests", "retry_after": exc.retry_after},
-                headers={"Retry-After": str(exc.retry_after)},
-            )
+        rate_key: str | None = None
 
-        return await call_next(request)
+        if request.method == "POST" and path == "/api/auth/login":
+            rate_key = f"login:{_client_key(request)}"
+            try:
+                rate_limiter.check(rate_key, limit=10, window_seconds=60)
+            except RateLimitExceeded as exc:
+                platform_metrics.increment("auth_rate_limited_total")
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many failed authentication attempts", "retry_after": exc.retry_after},
+                    headers={"Retry-After": str(exc.retry_after)},
+                )
+        elif request.method == "POST" and path == "/api/auth/signup":
+            rate_key = f"signup:{_client_key(request)}"
+            try:
+                rate_limiter.check(rate_key, limit=5, window_seconds=60)
+            except RateLimitExceeded as exc:
+                platform_metrics.increment("auth_rate_limited_total")
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many signup attempts", "retry_after": exc.retry_after},
+                    headers={"Retry-After": str(exc.retry_after)},
+                )
+        elif request.method == "POST" and path == "/api/ingest/v1/telemetry":
+            credential = request.headers.get("x-telemetry-key") or _client_key(request)
+            rate_key = f"ingest:{credential}"
+            try:
+                rate_limiter.check(rate_key, limit=120, window_seconds=60)
+            except RateLimitExceeded as exc:
+                platform_metrics.increment("ingestion_rate_limited_total")
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many ingestion requests", "retry_after": exc.retry_after},
+                    headers={"Retry-After": str(exc.retry_after)},
+                )
+
+        response = await call_next(request)
+        if path == "/api/auth/login" and response.status_code < 400 and rate_key is not None:
+            rate_limiter.clear(rate_key)
+        return response
 
     app.add_middleware(
         CORSMiddleware,
