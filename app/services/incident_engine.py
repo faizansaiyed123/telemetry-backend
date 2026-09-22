@@ -216,8 +216,8 @@ class IncidentEngine:
                 continue
             if incident.status == "resolved":
                 continue
-            delta = alert.timestamp - incident.last_seen_at
-            if timedelta(0) <= delta <= CORRELATION_WINDOW:
+            delta = abs(alert.timestamp - incident.last_seen_at)
+            if delta <= CORRELATION_WINDOW:
                 return incident
         return None
 
@@ -238,7 +238,11 @@ class IncidentEngine:
         else:
             if SEVERITY_RANK[alert.severity.value] > SEVERITY_RANK[incident.severity]:
                 incident.severity = alert.severity.value
-            incident.last_seen_at = alert.timestamp
+            # Acknowledgement applies to the current alert set. A new alert
+            # reopens the incident so operators cannot miss a fresh signal.
+            if incident.status == "acknowledged":
+                incident.status = "open"
+            incident.last_seen_at = max(incident.last_seen_at, alert.timestamp)
 
         incident.alert_ids.add(alert.id)
         incident.active_alert_ids.add(alert.id)
