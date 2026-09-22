@@ -19,7 +19,8 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         async with app.router.lifespan_context(app):
-                    response = await ac.post(
+            settings = get_settings()
+            response = await ac.post(
                 "/api/auth/login",
                 data={
                     "username": settings.bootstrap_admin_email,
@@ -64,7 +65,6 @@ async def test_create_and_list_change_event(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_change_event_requires_operator(client: AsyncClient) -> None:
-    settings = get_settings()
     signup = await client.post(
         "/api/auth/signup",
         json={"email": "evidence-viewer@example.com", "password": "strong-pass-123"},
