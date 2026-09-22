@@ -95,3 +95,71 @@ def test_anomaly_detector_keeps_rolling_baselines_per_host() -> None:
     b_cpu = next(item for item in b_result if item.metric == "cpu")
     assert a_cpu.is_anomaly is False
     assert b_cpu.is_anomaly is False
+
+
+def test_incident_reopens_when_new_alert_arrives_after_acknowledgement() -> None:
+    from app.models.alerts import Alert, Severity
+    from app.services.incident_engine import IncidentEngine
+
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    engine = IncidentEngine()
+    first = Alert(
+        id="alert-a",
+        timestamp=base,
+        metric="cpu",
+        value=95,
+        baseline=80,
+        severity=Severity.WARNING,
+        message="cpu high",
+        host_id="host-1",
+    )
+    incident = engine.on_alert_created(first)
+    assert incident.status == "open"
+    assert engine.acknowledge(incident.id).status == "acknowledged"
+
+    second = Alert(
+        id="alert-b",
+        timestamp=base + timedelta(seconds=1),
+        metric="memory",
+        value=95,
+        baseline=80,
+        severity=Severity.CRITICAL,
+        message="memory high",
+        host_id="host-1",
+    )
+    reopened = engine.on_alert_created(second)
+    assert reopened.id == incident.id
+    assert reopened.status == "open"
+    assert reopened.severity == "CRITICAL"
+
+
+def test_incident_correlation_handles_close_out_of_order_timestamps() -> None:
+    from app.models.alerts import Alert, Severity
+    from app.services.incident_engine import IncidentEngine
+
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    engine = IncidentEngine()
+    first = Alert(
+        id="alert-old",
+        timestamp=base + timedelta(seconds=10),
+        metric="cpu",
+        value=95,
+        baseline=80,
+        severity=Severity.WARNING,
+        message="cpu high",
+        host_id="host-2",
+    )
+    incident = engine.on_alert_created(first)
+    earlier = Alert(
+        id="alert-earlier",
+        timestamp=base + timedelta(seconds=8),
+        metric="latency_ms",
+        value=120,
+        baseline=50,
+        severity=Severity.WARNING,
+        message="latency high",
+        host_id="host-2",
+    )
+    correlated = engine.on_alert_created(earlier)
+    assert correlated.id == incident.id
+    assert correlated.alert_ids == {"alert-old", "alert-earlier"}
