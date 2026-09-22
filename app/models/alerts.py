@@ -1,9 +1,10 @@
-"""Alert models"""
+"""Alert models."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+
 from pydantic import BaseModel, Field
 
 
@@ -16,7 +17,7 @@ class Severity(str, Enum):
 
 
 class Alert(BaseModel):
-    """A single alert representing a detected anomaly."""
+    """A single alert representing a detected anomaly or rule violation."""
 
     id: str
     timestamp: datetime
@@ -28,6 +29,10 @@ class Alert(BaseModel):
     resolved: bool = False
     resolved_at: datetime | None = None
     acknowledged: bool = False
+    host_id: str | None = None
+    source: str = "anomaly"
+    rule_id: str | None = None
+    incident_id: str | None = None
 
 
 class AlertsResponse(BaseModel):
