@@ -13,6 +13,7 @@ _COUNTER_NAMES = (
     "telemetry_ingestion_rejected_total",
     "telemetry_persisted_total",
     "telemetry_persistence_dropped_total",
+    "alert_persistence_dropped_total",
     "alert_created_total",
     "alert_resolved_total",
     "incident_created_total",
