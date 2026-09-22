@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,9 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.db import User
-from app.services.audit import add_audit_log, write_security_audit
-
-logger = logging.getLogger(__name__)
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -73,6 +70,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             raise credentials_error
     except Exception as exc:
         raise credentials_error from exc
+
     user = db.scalar(select(User).where(User.id == subject, User.is_active.is_(True)))
     if user is None:
         raise credentials_error
@@ -88,16 +86,6 @@ def login(
     email = form_data.username.strip().lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(form_data.password, user.password_hash):
-        try:
-            write_security_audit(
-                request=request,
-                actor_user_id=None,
-                action="auth.login_failed",
-                outcome="failure",
-                details={"email": email[:320]},
-            )
-        except Exception:
-            logger.exception("Unable to write failed-login audit event")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -108,10 +96,9 @@ def login(
         db,
         request=request,
         actor_user_id=user.id,
-        action="auth.login_succeeded",
+        action="auth.login",
         resource_type="user",
         resource_id=user.id,
-        details={"email": user.email},
     )
     db.commit()
     return {"access_token": create_access_token(user.id, user.role), "user": user}
@@ -138,7 +125,7 @@ def signup(
     )
     db.add(user)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -146,17 +133,16 @@ def signup(
             detail="An account with this email already exists",
         ) from exc
 
-    db.refresh(user)
     add_audit_log(
         db,
         request=request,
         actor_user_id=user.id,
-        action="auth.signup_succeeded",
+        action="auth.signup",
         resource_type="user",
         resource_id=user.id,
-        details={"email": user.email, "role": user.role},
     )
     db.commit()
+    db.refresh(user)
     return {"access_token": create_access_token(user.id, user.role), "user": user}
 
 
