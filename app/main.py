@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from time import monotonic
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -97,7 +98,9 @@ def create_app() -> FastAPI:
                 )
         elif request.method == "POST" and path == "/api/ingest/v1/telemetry":
             credential = request.headers.get("x-telemetry-key") or _client_key(request)
-            rate_key = f"ingest:{credential}"
+            import hashlib
+            credential_digest = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+            rate_key = f"ingest:{credential_digest}"
             try:
                 rate_limiter.check(rate_key, limit=120, window_seconds=60)
             except RateLimitExceeded as exc:
@@ -108,7 +111,26 @@ def create_app() -> FastAPI:
                     headers={"Retry-After": str(exc.retry_after)},
                 )
 
-        response = await call_next(request)
+        started = monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration = monotonic() - started
+            platform_metrics.increment("http_requests_total")
+            platform_metrics.increment("http_5xx_total")
+            platform_metrics.increment("http_request_duration_seconds_count")
+            platform_metrics.increment("http_request_duration_seconds_sum", int(duration * 1_000_000))
+            raise
+
+        duration = monotonic() - started
+        platform_metrics.increment("http_requests_total")
+        if response.status_code >= 500:
+            platform_metrics.increment("http_5xx_total")
+        elif response.status_code >= 400:
+            platform_metrics.increment("http_4xx_total")
+        platform_metrics.increment("http_request_duration_seconds_count")
+        platform_metrics.increment("http_request_duration_seconds_sum", int(duration * 1_000_000))
+
         if path == "/api/auth/login" and response.status_code < 400 and rate_key is not None:
             rate_limiter.clear(rate_key)
         return response
