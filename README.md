@@ -233,8 +233,30 @@ History and statistics accept host/time-window filtering. Queries use a composit
 | PATCH | /api/alert-rules/{rule_id} | Admin |
 | DELETE | /api/alert-rules/{rule_id} | Admin |
 | GET | /api/incidents | Authenticated |
+| GET | /api/incidents/{incident_id}/evidence | Authenticated |
 | GET | /api/incidents/{incident_id} | Authenticated |
 | POST | /api/incidents/{incident_id}/acknowledge | Operator/Admin |
+
+### Change events and incident evidence
+
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/changes | Authenticated |
+| POST | /api/changes | Operator/Admin |
+| GET | /api/incidents/{incident_id}/evidence | Authenticated |
+
+Change events represent deployments, configuration changes, feature-flag changes, maintenance, and rollbacks. They can be emitted manually or from CI/CD with an external build or release reference.
+
+Incident evidence is deterministic: it joins the incident's recorded alerts with nearby change events in a ±30 minute correlation window and returns a chronological timeline plus explicit findings. The backend does not infer a root cause beyond the evidence it can actually correlate.
+
+Example CI/CD integration:
+
+\`\`\`bash
+curl -X POST "$TELEMETRY_API_URL/api/changes" \\
+  -H "Authorization: Bearer $TELEMETRY_OPERATOR_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"event_type":"deployment","title":"Release 2026.09.22","source":"github-actions","external_ref":"run-8421","host_id":"<host-id>"}'
+\`\`\`
 
 ### Agent credentials
 
