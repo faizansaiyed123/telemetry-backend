@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0003_slos"
-down_revision = "0002_observability_features"
+down_revision = "0003_ingestion_idempotency"
 branch_labels = None
 depends_on = None
 
