@@ -12,6 +12,7 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/auth/signup"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/auth/change-password"),
+    ("POST", "/api/auth/ws-token"),
     ("GET", "/api/users"),
     ("POST", "/api/users"),
     ("PATCH", "/api/users/{user_id}"),

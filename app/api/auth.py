@@ -11,7 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    create_websocket_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.db.session import get_db
 from app.models.db import User
 from app.services.audit import add_audit_log
@@ -55,6 +61,12 @@ class ChangePasswordRequest(BaseModel):
 
 class ChangePasswordResponse(BaseModel):
     status: str
+
+
+class WebSocketTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
@@ -155,6 +167,16 @@ def signup(
     db.commit()
     db.refresh(user)
     return {"access_token": create_access_token(user.id, user.role), "user": user}
+
+
+@router.post("/ws-token", response_model=WebSocketTokenResponse)
+def websocket_token(current_user: User = Depends(get_current_user)) -> WebSocketTokenResponse:
+    from app.core.ws_tokens import ws_token_registry
+
+    return WebSocketTokenResponse(
+        access_token=create_websocket_token(current_user.id, current_user.role),
+        expires_in=ws_token_registry.ttl_seconds,
+    )
 
 
 @router.get("/me", response_model=UserResponse)

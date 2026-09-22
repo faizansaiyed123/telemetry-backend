@@ -8,7 +8,8 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from app.core.security import decode_access_token
+from app.core.security import decode_websocket_token
+from app.core.ws_tokens import ws_token_registry
 from app.db.session import SessionLocal
 from app.models.db import User
 from app.services.telemetry_manager import TelemetryManager
@@ -19,14 +20,18 @@ router = APIRouter(tags=["websocket"])
 
 
 def _authenticate_websocket(token: str | None) -> bool:
-    """Validate a token against an active database user."""
+    """Validate and consume a short-lived, one-time WebSocket token."""
     if not token:
         return False
     try:
-        payload = decode_access_token(token)
+        payload = decode_websocket_token(token)
         subject = payload.get("sub")
-        if not subject:
+        jti = payload.get("jti")
+        if not subject or not isinstance(jti, str):
             return False
+        if not ws_token_registry.consume(jti):
+            return False
+
         with SessionLocal() as db:
             return db.scalar(
                 select(User.id).where(User.id == subject, User.is_active.is_(True))
