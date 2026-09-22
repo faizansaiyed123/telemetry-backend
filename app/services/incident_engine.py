@@ -221,9 +221,11 @@ class IncidentEngine:
                 return incident
         return None
 
-    def on_alert_created(self, alert: Alert) -> IncidentState:
+    def create_or_update_for_alert(self, alert: Alert) -> tuple[IncidentState, bool]:
+        """Attach an alert to an incident and report whether a new incident was created."""
         incident = self._candidate(alert)
-        if incident is None:
+        created = incident is None
+        if created:
             incident = IncidentState(
                 id=str(uuid4()),
                 host_id=alert.host_id,
@@ -238,8 +240,6 @@ class IncidentEngine:
         else:
             if SEVERITY_RANK[alert.severity.value] > SEVERITY_RANK[incident.severity]:
                 incident.severity = alert.severity.value
-            # Acknowledgement applies to the current alert set. A new alert
-            # reopens the incident so operators cannot miss a fresh signal.
             if incident.status == "acknowledged":
                 incident.status = "open"
             incident.last_seen_at = max(incident.last_seen_at, alert.timestamp)
@@ -251,6 +251,11 @@ class IncidentEngine:
             self._persistence.enqueue(
                 IncidentPersistenceEvent(incident=incident.snapshot(), alert_id=alert.id)
             )
+        return incident, created
+
+    def on_alert_created(self, alert: Alert) -> IncidentState:
+        """Backward-compatible incident creation hook."""
+        incident, _ = self.create_or_update_for_alert(alert)
         return incident
 
     def on_alert_resolved(self, alert: Alert) -> IncidentState | None:

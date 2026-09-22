@@ -15,6 +15,8 @@ def test_persistent_models_are_registered() -> None:
         "audit_logs",
         "slos",
             "change_events",
+        "notification_channels",
+        "notification_deliveries",
     }
 
 

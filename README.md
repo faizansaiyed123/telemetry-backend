@@ -302,6 +302,53 @@ The simulator remains valuable as a deterministic fault-injection harness for va
 | GET | /api/observability/metrics/prometheus | Admin |
 | GET | /api/observability/audit-logs | Admin |
 
+### Notifications
+
+| Method | Endpoint | Access | Purpose |
+|---|---|---|---|
+| GET | /api/notification-channels | Admin | List configured webhook channels |
+| POST | /api/notification-channels | Admin | Create a webhook channel |
+| PATCH | /api/notification-channels/{channel_id} | Admin | Update routing/security settings |
+| DELETE | /api/notification-channels/{channel_id} | Admin | Remove a channel |
+| GET | /api/notification-channels/deliveries | Admin | Inspect delivery state and retry history |
+
+Notifications use a durable, bounded delivery pipeline rather than sending network requests from the telemetry hot path.
+
+A channel can independently receive alerts and/or incidents and can filter by minimum severity. Delivery records are deduplicated by channel + event type + event ID.
+
+The dispatcher provides:
+
+- bounded in-process queueing
+- durable delivery state in PostgreSQL
+- restart recovery for pending work
+- bounded exponential backoff
+- retry handling for network failures, HTTP 429, and HTTP 5xx
+- permanent failure handling for non-retryable HTTP 4xx responses
+- delivery attempt/error timestamps for troubleshooting
+- audit logging for channel administration
+- webhook URL masking in API responses
+- HTTPS-only webhook destinations with private/reserved address rejection
+
+No paid notification platform is required. Any HTTPS endpoint that accepts JSON can be used for local testing or self-hosted automation.
+
+Example payloads use a versioned envelope such as:
+
+```json
+{
+  "version": 1,
+  "event": "alert.firing",
+  "alert": {
+    "id": "…",
+    "host_id": "…",
+    "metric": "cpu",
+    "severity": "CRITICAL",
+    "message": "CPU threshold exceeded"
+  }
+}
+```
+
+The notification worker is intentionally isolated from telemetry generation. A slow or unavailable webhook can increase delivery backlog without blocking live telemetry processing.
+
 ## Real host telemetry agent
 
 The repository includes a free, open-source host agent under `agent/`.
@@ -513,6 +560,12 @@ The current migration chain is:
 0004_slos
         ↓
 0005_telemetry_query_index
+        ↓
+0006_telemetry_storage_hardening
+        ↓
+0007_change_events
+        ↓
+0008_notification_pipeline
 ```
 
 ## Testing strategy
@@ -544,6 +597,9 @@ Coverage includes:
 - REST route registration
 - simulation APIs
 - WebSocket behavior
+- notification routing and webhook URL security
+- notification delivery idempotency
+- retry/backoff scheduling on webhook failures
 - integration flows from authentication through telemetry/alerts
 
 GitHub Actions starts PostgreSQL, applies Alembic migrations, runs the full suite, and verifies the final migration state.

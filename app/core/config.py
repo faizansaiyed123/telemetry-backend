@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     telemetry_retention_batch_size: int = 1000
     telemetry_retention_max_batches_per_run: int = 20
 
+    notification_enabled: bool = True
+    notification_queue_size: int = 500
+    notification_timeout_seconds: float = 5.0
+
     anomaly_z_threshold: float = 3.0
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
@@ -58,6 +62,7 @@ class Settings(BaseSettings):
         "telemetry_retention_cleanup_interval_seconds",
         "telemetry_retention_batch_size",
         "telemetry_retention_max_batches_per_run",
+        "notification_queue_size",
     )
     @classmethod
     def validate_positive_integer(cls, v: int) -> int:
@@ -65,11 +70,11 @@ class Settings(BaseSettings):
             raise ValueError("value must be at least 1")
         return v
 
-    @field_validator("anomaly_z_threshold")
+    @field_validator("anomaly_z_threshold", "notification_timeout_seconds")
     @classmethod
-    def validate_anomaly_z_threshold(cls, v: float) -> float:
+    def validate_positive_float(cls, v: float) -> float:
         if v <= 0:
-            raise ValueError("anomaly_z_threshold must be positive")
+            raise ValueError("value must be positive")
         return v
 
     @model_validator(mode="after")
