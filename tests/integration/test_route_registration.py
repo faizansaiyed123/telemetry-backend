@@ -45,6 +45,11 @@ EXPECTED_HTTP_ROUTES = {
     ("GET", "/api/observability/metrics"),
     ("GET", "/api/observability/metrics/prometheus"),
     ("GET", "/api/observability/audit-logs"),
+    ("GET", "/api/slos"),
+    ("GET", "/api/slos/{slo_id}/status"),
+    ("POST", "/api/slos"),
+    ("PATCH", "/api/slos/{slo_id}"),
+    ("DELETE", "/api/slos/{slo_id}"),
 }
 
 
