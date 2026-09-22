@@ -22,6 +22,7 @@ EXPECTED_HTTP_ROUTES = {
     ("GET", "/api/telemetry/current"),
     ("GET", "/api/telemetry/history"),
     ("GET", "/api/telemetry/stats"),
+    ("GET", "/api/telemetry/series"),
     ("GET", "/api/alerts"),
     ("POST", "/api/alerts/{alert_id}/acknowledge"),
     ("GET", "/api/simulation/status"),
