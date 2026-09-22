@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_operator
+from app.api.dependencies import require_authenticated, require_operator
 from app.db.session import get_db
 from app.models.db import User
 from app.models.observability import IncidentResponse
@@ -32,16 +31,11 @@ def _response(incident) -> IncidentResponse:
 
 @router.get("", response_model=list[IncidentResponse])
 def list_incidents(
-    status_filter: str | None = None,
-    _: User = Depends(require_operator),
-    db: Session = Depends(get_db),
-    request: Request | None = None,
+    request: Request,
+    status_filter: str | None = Query(default=None, alias="status"),
+    _: User = Depends(require_authenticated),
 ) -> list[IncidentResponse]:
-    manager = request.app.state.telemetry_manager if request is not None else None
-    if manager is None:
-        return []
-
-    incidents = manager.incident_engine.all()
+    incidents = request.app.state.telemetry_manager.incident_engine.all()
     if status_filter:
         incidents = [incident for incident in incidents if incident.status == status_filter]
     return [_response(incident) for incident in incidents]
@@ -51,7 +45,7 @@ def list_incidents(
 def get_incident(
     incident_id: str,
     request: Request,
-    _: User = Depends(require_operator),
+    _: User = Depends(require_authenticated),
 ) -> IncidentResponse:
     incident = request.app.state.telemetry_manager.incident_engine.get(incident_id)
     if incident is None:
@@ -70,6 +64,7 @@ def acknowledge_incident(
     incident = engine.acknowledge(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Active incident not found")
+
     add_audit_log(
         db,
         request=request,
