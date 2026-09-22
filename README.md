@@ -353,7 +353,7 @@ System events cover lifecycle changes such as pause, resume, reset, rate changes
 
 ## Telemetry and anomaly behavior
 
-Telemetry is generated from bounded, correlated synthetic signals rather than real host agents.
+Telemetry can come from either bounded, correlated synthetic signals or the included real host telemetry agent.
 
 The anomaly detector keeps a rolling window for each monitored metric:
 
@@ -471,13 +471,40 @@ This backend is intentionally a single-process V1 simulation service.
 That means:
 
 - one process owns the live telemetry state
-- all connected WebSocket clients receive the same generated stream
+- all connected WebSocket clients receive the same live stream
 - runtime state is local to the process
-- PostgreSQL provides durable telemetry and alert history when persistence is enabled
+- PostgreSQL provides durable telemetry and operational history when persistence is enabled
 - Redis and a message broker are not required
+- rate limiting and internal metrics are intentionally process-local and observable
 
-The architecture can later be extended with real telemetry agents, multiple workers, external queues, and distributed stream processing without changing the public dashboard concepts.
+The current version already includes a real host agent, host-scoped machine credentials, configurable alert rules, incident correlation, SLO/error-budget evaluation, audit logging, and Prometheus-compatible internal metrics.
 
 ## License
 
 MIT
+
+
+## Production-oriented capabilities
+
+### Real host ingestion
+agent/telemetry_agent.py collects host CPU, memory, network, and available temperature signals with psutil and ships bounded batches over HTTPS. The ingestion endpoint authenticates a host-scoped API key and deduplicates events by host plus sequence.
+
+### Stateful alerting
+Alert rules evaluate thresholds in the telemetry hot path with sustained-duration and cooldown state per rule and host. This complements the existing rolling z-score anomaly detector.
+
+### Incident correlation
+Related alerts for the same host are grouped inside a short time window. Incidents track severity, acknowledgement, associated alerts, and resolution state, and are persisted asynchronously.
+
+### SLOs and error budgets
+SLO definitions evaluate persisted telemetry through database-side aggregates. Status exposes SLI percentage, objective, good/bad sample counts, remaining error budget, and compliance.
+
+### Self-observability
+Internal runtime metrics cover telemetry throughput, connected clients, alert activity, rule activity, incident state, and persistence queue depth/drop behavior. An admin-only Prometheus text endpoint is available for a local Prometheus/Grafana setup.
+
+### Security and auditability
+API keys are stored by hash and can be revoked. Public signup, login, and telemetry ingestion have dependency-free sliding-window abuse protection. Administrative operational actions are recorded with actor, resource, outcome, request IP, user agent, and timestamp.
+
+### Scaling tradeoff
+The current backend remains deliberately single-process. That makes the real-time state model explicit instead of pretending process-local state is horizontally distributed. A future multi-worker deployment would add shared coordination for rate limits and WebSocket fan-out.
+
+See agent/README.md for the Windows/PowerShell agent setup.
