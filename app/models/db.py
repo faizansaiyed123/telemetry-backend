@@ -82,6 +82,9 @@ class TelemetryRecord(Base):
     requests_per_second: Mapped[float] = mapped_column(Float)
     error_rate: Mapped[float] = mapped_column(Float)
     latency_ms: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16), default="synthetic", index=True)
+    agent_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     host: Mapped[Host] = relationship(back_populates="telemetry")
 
 
