@@ -268,4 +268,4 @@ class IncidentEvidenceResponse(BaseModel):
     change_count: int
     correlation_window_minutes: int
     findings: list[str]
-    metric_findings: list[str] = []
+    metric_findings: list[str] = Field(default_factory=list)
