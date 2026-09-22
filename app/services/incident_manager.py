@@ -142,6 +142,19 @@ class IncidentManager:
         await self._persist_state(state, None)
         return state
 
+    async def reset_scope(self, host_id: str | None) -> None:
+        """Resolve and forget the active incident for a telemetry source reset."""
+        scope = host_id or "__global__"
+        async with self._lock:
+            state = self._states.pop(scope, None)
+            if state is None:
+                return
+            if state.status != "resolved":
+                state.status = "resolved"
+                state.resolved_at = utc_now()
+                self.resolved_count += 1
+        await self._persist_state(state, None)
+
     async def load_open(self) -> None:
         states = await asyncio.to_thread(self._load_open_states)
         async with self._lock:
