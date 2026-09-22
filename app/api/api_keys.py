@@ -67,6 +67,7 @@ def create_api_key(
         created_by=current_user.id,
     )
     db.add(key)
+    db.flush()
     add_audit_log(
         db,
         request=request,
