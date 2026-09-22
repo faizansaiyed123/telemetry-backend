@@ -194,9 +194,15 @@ async def get_telemetry_history(
                 .limit(limit)
             )
             records = list(db.scalars(stmt))
-            events = [_to_event(record) for record in reversed(records)]
-            if not events and host_id is None and start is None and end is None:
-                events = manager.get_history(limit=limit)
+                events = [_to_event(record) for record in reversed(records)]
+            if not events:
+                in_memory = manager.get_history(limit=limit, host_id=target_host_id)
+                events = [
+                    event
+                    for event in in_memory
+                    if (start is None or event.timestamp >= start)
+                    and (end is None or event.timestamp < end)
+                ]
 
     return HistoryResponse(events=events, count=len(events), limit=limit)
 
@@ -223,4 +229,14 @@ async def get_telemetry_stats(
         return manager.get_stats(host_id=host_id)
 
     result = _db_stats(db, host_id=target_host_id, start=start, end=end)
-    return result if result is not None else manager.get_stats(host_id=host_id)
+    if result is not None:
+        return result
+    if start is not None or end is not None:
+        filtered = [
+            event
+            for event in manager.get_history(manager.max_history_size, host_id=host_id)
+            if (start is None or event.timestamp >= start)
+            and (end is None or event.timestamp < end)
+        ]
+        return compute_stats(filtered)
+    return manager.get_stats(host_id=host_id)
