@@ -284,7 +284,6 @@ class NotificationDispatcher:
                 statement = (
                     pg_insert(NotificationDelivery)
                     .values(
-                        id=None,
                         channel_id=channel.id,
                         event_type=envelope.event_type,
                         event_id=envelope.event_id,
