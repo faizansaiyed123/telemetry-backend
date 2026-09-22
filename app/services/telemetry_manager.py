@@ -1,9 +1,4 @@
-"""Telemetry manager — owns all telemetry state.
-
-Central hub between the generator and all consumers (WebSocket, REST).
-Owns: current telemetry, bounded history, sequence number, simulation state,
-event publication, generation counters, rate state, anomaly state, alerts.
-"""
+"""Central telemetry runtime coordinating simulation, agent ingestion and alerts."""
 
 from __future__ import annotations
 
@@ -18,21 +13,23 @@ from sqlalchemy import delete, select
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.alerts import Alert
+from app.models.db import AlertRecord, Host, TelemetryRecord
 from app.models.telemetry import TelemetryEvent, TelemetryStats
 from app.services.aggregation import compute_stats
 from app.services.alert_persistence import AlertPersistence
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.telemetry_generator import TelemetryGenerator
-from app.models.db import AlertRecord, Host, TelemetryRecord
 from app.services.telemetry_persistence import TelemetryPersistence
 from app.services.websocket_manager import WebSocketManager
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
+GLOBAL_DETECTOR_KEY = "__global__"
+
 
 class TelemetryManager:
-    """Central telemetry manager owning all state and the generation loop."""
+    """Own live telemetry state and provide one pipeline for all telemetry sources."""
 
     def __init__(
         self,
@@ -42,7 +39,11 @@ class TelemetryManager:
         anomaly_threshold: float = 3.0,
     ) -> None:
         self._generator = TelemetryGenerator()
+        self._anomaly_threshold = anomaly_threshold
         self._anomaly_detector = AnomalyDetector(threshold=anomaly_threshold)
+        self._anomaly_detectors: dict[str, AnomalyDetector] = {
+            GLOBAL_DETECTOR_KEY: self._anomaly_detector
+        }
         self._ws_manager = WebSocketManager()
         settings = get_settings()
         self._persistence: TelemetryPersistence | None = None
@@ -57,13 +58,14 @@ class TelemetryManager:
 
         self._sequence: int = 0
         self._events_generated: int = 0
+        self._events_ingested: int = 0
 
         self._running: bool = False
         self._rate: int = telemetry_rate
         self._max_rate: int = max_rate
 
         self._alerts: deque[Alert] = deque(maxlen=200)
-        self._active_alerts: dict[str, Alert] = {}  # metric -> active alert
+        self._active_alerts: dict[object, Alert] = {}
         self._alert_id_counter: int = 0
 
         self._task: asyncio.Task | None = None
@@ -72,10 +74,8 @@ class TelemetryManager:
         self._lock = asyncio.Lock()
         self._start_time: datetime | None = None
 
-    # --- Lifecycle ---
-
     async def _ensure_persistence(self) -> None:
-        """Start persistence workers when persistence is enabled and a host is available."""
+        """Start the shared persistence workers when persistence is enabled."""
         if not self._persistence_enabled:
             return
         if self._persistence is not None and self._alert_persistence is not None:
@@ -122,7 +122,7 @@ class TelemetryManager:
                 await alert_persistence.stop()
 
     async def start(self) -> None:
-        """Start the telemetry generation background task."""
+        """Start the synthetic telemetry generation background task."""
         if self._running:
             return
         self._running = True
@@ -133,7 +133,7 @@ class TelemetryManager:
         logger.info("Telemetry generation started at %d events/sec", self._rate)
 
     async def stop(self) -> None:
-        """Stop the telemetry generation background task gracefully."""
+        """Stop generation and gracefully drain persistence workers."""
         if self._running or self._task is not None:
             self._running = False
         self._stop_event.set()
@@ -160,10 +160,8 @@ class TelemetryManager:
     def ws_manager(self) -> WebSocketManager:
         return self._ws_manager
 
-    # --- Simulation controls ---
-
     async def pause(self) -> None:
-        """Pause telemetry generation without stopping the task."""
+        """Pause synthetic telemetry generation."""
         if not self._running:
             return
         self._running = False
@@ -179,7 +177,7 @@ class TelemetryManager:
         await self._broadcast_system("paused", "Telemetry generation paused")
 
     async def resume(self) -> None:
-        """Resume telemetry generation and restore persistence if needed."""
+        """Resume synthetic telemetry generation."""
         if self._running:
             return
         self._running = True
@@ -190,55 +188,44 @@ class TelemetryManager:
         await self._broadcast_system("resumed", "Telemetry generation resumed")
 
     async def reset(self) -> None:
-        """Reset all telemetry state.
-
-        Clears: history, current telemetry, sequence, alerts, anomaly state,
-        generator state, anomaly detector history. Disconnects all WebSocket clients.
-        """
+        """Reset synthetic telemetry state without deleting agent host history."""
         was_running = self._running
+        synthetic_host_id = self._persistence_host_id
         await self.stop()
 
-        if self._persistence_host_id is not None:
+        if synthetic_host_id is not None:
             try:
                 with SessionLocal() as db:
-                    db.execute(
-                        delete(TelemetryRecord).where(
-                            TelemetryRecord.host_id == self._persistence_host_id
-                        )
-                    )
-                    db.execute(
-                        delete(AlertRecord).where(
-                            AlertRecord.host_id == self._persistence_host_id
-                        )
-                    )
+                    db.execute(delete(TelemetryRecord).where(TelemetryRecord.host_id == synthetic_host_id))
+                    db.execute(delete(AlertRecord).where(AlertRecord.host_id == synthetic_host_id))
                     db.commit()
             except Exception:
-                logger.exception("Unable to clear persisted telemetry state during reset")
+                logger.exception("Unable to clear persisted synthetic telemetry state during reset")
 
         async with self._lock:
             self._history.clear()
             self._current = None
             self._sequence = 0
             self._events_generated = 0
+            self._events_ingested = 0
             self._alerts.clear()
             self._active_alerts.clear()
             self._alert_id_counter = 0
             self._generator.reset()
             self._anomaly_detector.reset()
+            self._anomaly_detectors = {GLOBAL_DETECTOR_KEY: self._anomaly_detector}
             self._start_time = utc_now() if was_running else self._start_time
 
         await self._ws_manager.disconnect_all()
-        logger.info("Telemetry state reset")
+        logger.info("Synthetic telemetry state reset")
 
-        # Preserve the pre-reset running state. Resetting a live engine should
-        # clear its state without leaving the stream unexpectedly paused.
         if was_running:
             await self.start()
 
-        await self._broadcast_system("reset", "Telemetry state has been reset")
+        await self._broadcast_system("reset", "Synthetic telemetry state has been reset")
 
     async def set_rate(self, rate: int) -> None:
-        """Set the telemetry rate (events per second)."""
+        """Set the synthetic telemetry generation rate."""
         if rate < 1 or rate > self._max_rate:
             raise ValueError(f"Rate must be between 1 and {self._max_rate}")
         old_rate = self._rate
@@ -247,13 +234,53 @@ class TelemetryManager:
         await self._broadcast_system("rate_changed", f"Telemetry rate changed to {rate}/sec")
 
     async def trigger_anomaly(self, metric: str, intensity: float = 1.0, duration_seconds: float = 3.0) -> None:
-        """Trigger an anomaly on the specified metric."""
+        """Trigger an anomaly in the synthetic source."""
         duration_events = max(1, int(duration_seconds * self._rate))
         self._generator.set_anomaly(metric, intensity=intensity, duration=duration_events)
-        logger.info("Anomaly triggered on metric: %s (intensity=%.1f, duration=%d events)", metric, intensity, duration_events)
+        logger.info(
+            "Anomaly triggered on metric: %s (intensity=%.1f, duration=%d events)",
+            metric,
+            intensity,
+            duration_events,
+        )
         await self._broadcast_system("anomaly_triggered", f"Anomaly triggered on {metric}")
 
-    # --- State queries ---
+    async def ingest_external(self, events: list[TelemetryEvent], host_id: str) -> tuple[int, int]:
+        """Process agent telemetry through the same history, anomaly and broadcast pipeline."""
+        if not events:
+            return 0, 0
+
+        broadcasts: list[Alert] = []
+        async with self._lock:
+            for event in events:
+                normalized = event.model_copy(update={"host_id": host_id, "source": "agent"})
+                self._current = normalized
+                self._history.append(normalized)
+                self._events_ingested += 1
+
+                if self._persistence is not None:
+                    self._persistence.enqueue(normalized, host_id)
+
+                detector = self._get_detector(host_id)
+                anomaly_results = detector.update(normalized)
+                broadcasts.extend(self._process_anomaly_results(anomaly_results, normalized, host_id))
+
+        for event in events:
+            normalized = event.model_copy(update={"host_id": host_id, "source": "agent"})
+            await self._broadcast_telemetry(normalized)
+
+        for alert in broadcasts:
+            await self._broadcast_alert(alert)
+
+        return len(events), len(events) if self._persistence is not None else 0
+
+    def _get_detector(self, host_id: str | None) -> AnomalyDetector:
+        key = host_id or GLOBAL_DETECTOR_KEY
+        detector = self._anomaly_detectors.get(key)
+        if detector is None:
+            detector = AnomalyDetector(threshold=self._anomaly_threshold)
+            self._anomaly_detectors[key] = detector
+        return detector
 
     @property
     def running(self) -> bool:
@@ -276,6 +303,10 @@ class TelemetryManager:
         return self._events_generated
 
     @property
+    def events_ingested(self) -> int:
+        return self._events_ingested
+
+    @property
     def active_anomaly(self) -> str | None:
         return self._generator.active_anomaly
 
@@ -287,29 +318,43 @@ class TelemetryManager:
     def persistence_host_id(self) -> str | None:
         return self._persistence_host_id
 
+    @property
+    def persistence_queue_size(self) -> int:
+        return self._persistence.queue_size if self._persistence is not None else 0
+
+    @property
+    def persistence_dropped_events(self) -> int:
+        return self._persistence.dropped_events if self._persistence is not None else 0
+
+    @property
+    def persistence_persisted_events(self) -> int:
+        return self._persistence.persisted_events if self._persistence is not None else 0
+
+    @property
+    def alert_persistence_queue_size(self) -> int:
+        return self._alert_persistence.queue_size if self._alert_persistence is not None else 0
+
+    @property
+    def alert_persistence_dropped_events(self) -> int:
+        return self._alert_persistence.dropped_events if self._alert_persistence is not None else 0
+
     def get_current(self) -> TelemetryEvent | None:
         return self._current
 
     def get_history(self, limit: int = 100) -> list[TelemetryEvent]:
-        """Return the most recent `limit` events in chronological order."""
         if limit < 1:
             limit = 1
-        if limit > len(self._history):
-            limit = len(self._history)
-        # deque stores in chronological order; take the last `limit` items
-        items = list(self._history)[-limit:]
-        return items
+        limit = min(limit, len(self._history))
+        return list(self._history)[-limit:]
 
     def get_stats(self) -> TelemetryStats:
-        """Compute and return statistics over the full history."""
         return compute_stats(list(self._history))
 
     def get_alerts(self, active_only: bool = False) -> list[Alert]:
-        """Return alerts (active first then resolved, or active only)."""
-        active = [a for a in self._active_alerts.values()]
+        active = list(self._active_alerts.values())
         if active_only:
             return active
-        resolved = [a for a in self._alerts if a.resolved]
+        resolved = [alert for alert in self._alerts if alert.resolved]
         return active + resolved
 
     @property
@@ -321,7 +366,6 @@ class TelemetryManager:
         return len(self._alerts)
 
     async def acknowledge_alert(self, alert_id: str) -> bool:
-        """Acknowledge a live alert and enqueue its updated state for persistence."""
         async with self._lock:
             alert = next((item for item in self._alerts if item.id == alert_id), None)
             if alert is None:
@@ -335,7 +379,7 @@ class TelemetryManager:
             if not alert.acknowledged:
                 alert.acknowledged = True
                 if self._alert_persistence is not None:
-                    self._alert_persistence.enqueue(alert, self._persistence_host_id)
+                    self._alert_persistence.enqueue(alert, alert.host_id)
             return True
 
     @property
@@ -344,10 +388,7 @@ class TelemetryManager:
             return 0.0
         return (utc_now() - self._start_time).total_seconds()
 
-    # --- Generation loop ---
-
     async def _generation_loop(self) -> None:
-        """Background task that generates telemetry at the configured rate."""
         logger.debug("Generation loop started")
         while self._running and not self._stop_event.is_set():
             try:
@@ -357,11 +398,9 @@ class TelemetryManager:
             except Exception:
                 logger.exception("Unexpected error in generation loop")
 
-            # Sleep for the interval, checking stop_event for faster cancellation
             interval = 1.0 / self._rate
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=interval)
-                # If we get here, stop_event was set
                 break
             except asyncio.TimeoutError:
                 pass
@@ -370,82 +409,88 @@ class TelemetryManager:
         logger.debug("Generation loop ended")
 
     async def _generate_one(self) -> None:
-        """Generate a single telemetry event, update state, check anomalies, broadcast."""
         async with self._lock:
             self._sequence += 1
             event = self._generator.generate(self._sequence)
+            host_id = self._persistence_host_id
+            event = event.model_copy(update={"host_id": host_id, "source": "simulation"})
             self._current = event
             self._history.append(event)
             self._events_generated += 1
             if self._persistence is not None:
-                self._persistence.enqueue(event)
+                self._persistence.enqueue(event, host_id)
 
-            # Check for anomalies
-            anomaly_results = self._anomaly_detector.update(event)
-            alerts_to_broadcast = self._process_anomaly_results(anomaly_results, event)
+            detector = self._get_detector(host_id)
+            anomaly_results = detector.update(event)
+            alerts_to_broadcast = self._process_anomaly_results(anomaly_results, event, host_id)
 
-        # Broadcast outside the lock
-        msg = json.dumps({"type": "telemetry", "data": event.model_dump(mode="json")})
-        await self._ws_manager.broadcast(msg)
-
+        await self._broadcast_telemetry(event)
         for alert in alerts_to_broadcast:
-            alert_msg = json.dumps({"type": "alert", "data": alert.model_dump(mode="json")})
-            await self._ws_manager.broadcast(alert_msg)
+            await self._broadcast_alert(alert)
 
     def _process_anomaly_results(
-        self, results: list[AnomalyResult], event: TelemetryEvent
+        self,
+        results: list[AnomalyResult],
+        event: TelemetryEvent,
+        host_id: str | None = None,
     ) -> list[Alert]:
-        """Process anomaly results and manage alert lifecycle.
-
-        Returns list of new or resolved alerts to broadcast.
-        """
         broadcasts: list[Alert] = []
-
         for result in results:
             metric = result.metric
+            key: object = (host_id or GLOBAL_DETECTOR_KEY, metric) if host_id else metric
             if result.is_anomaly:
-                # Create alert if not already active (deduplication)
-                if metric not in self._active_alerts:
+                if key not in self._active_alerts:
                     self._alert_id_counter += 1
                     alert = Alert(
                         id=f"alert-{self._alert_id_counter}",
                         timestamp=event.timestamp,
+                        host_id=host_id,
+                        source="anomaly",
                         metric=metric,
                         value=result.value,
                         baseline=result.baseline,
                         severity=result.severity,
-                        message=f"{metric} anomaly detected: {result.value} (baseline: {result.baseline}, z-score: {result.z_score})",
+                        message=(
+                            f"{metric} anomaly detected: {result.value} "
+                            f"(baseline: {result.baseline}, z-score: {result.z_score})"
+                        ),
                         resolved=False,
                     )
-                    self._active_alerts[metric] = alert
+                    self._active_alerts[key] = alert
                     self._alerts.append(alert)
                     if self._alert_persistence is not None:
-                        self._alert_persistence.enqueue(alert, self._persistence_host_id)
+                        self._alert_persistence.enqueue(alert, host_id)
                     broadcasts.append(alert)
                     logger.warning(
-                        "Alert created: %s = %s (z=%.2f, severity=%s)",
+                        "Alert created: %s = %s (z=%.2f, severity=%s, host=%s)",
                         metric,
                         result.value,
                         result.z_score,
                         result.severity,
+                        host_id,
                     )
                 else:
-                    # Update existing alert value
-                    self._active_alerts[metric].value = result.value
+                    self._active_alerts[key].value = result.value
             else:
-                # Resolve alert if it exists
-                if metric in self._active_alerts:
-                    alert = self._active_alerts.pop(metric)
+                if key in self._active_alerts:
+                    alert = self._active_alerts.pop(key)
                     alert.resolved = True
                     alert.resolved_at = utc_now()
                     if self._alert_persistence is not None:
-                        self._alert_persistence.enqueue(alert, self._persistence_host_id)
+                        self._alert_persistence.enqueue(alert, host_id)
                     broadcasts.append(alert)
-                    logger.info("Alert resolved: %s", metric)
-
+                    logger.info("Alert resolved: %s host=%s", metric, host_id)
         return broadcasts
 
+    async def _broadcast_telemetry(self, event: TelemetryEvent) -> None:
+        msg = json.dumps({"type": "telemetry", "data": event.model_dump(mode="json")})
+        await self._ws_manager.broadcast(msg)
+
+    async def _broadcast_alert(self, alert: Alert) -> None:
+        await self._ws_manager.broadcast(
+            json.dumps({"type": "alert", "data": alert.model_dump(mode="json")})
+        )
+
     async def _broadcast_system(self, event: str, message: str) -> None:
-        """Broadcast a system message to all WebSocket clients."""
         msg = json.dumps({"type": "system", "data": {"event": event, "message": message}})
         await self._ws_manager.broadcast(msg)
