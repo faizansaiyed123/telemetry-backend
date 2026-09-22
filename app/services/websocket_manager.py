@@ -10,6 +10,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from app.services.platform_metrics import platform_metrics
+
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
@@ -27,6 +29,7 @@ class WebSocketManager:
         """Register a new WebSocket client."""
         async with self._lock:
             self._clients.add(websocket)
+        platform_metrics.increment("websocket_connections_total")
         logger.info("WebSocket client connected (total: %d)", len(self._clients))
 
     async def unregister(self, websocket: "WebSocket") -> None:
