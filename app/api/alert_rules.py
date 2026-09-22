@@ -97,7 +97,7 @@ async def update_alert_rule(
     return rule
 
 
-@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 def delete_alert_rule(
     rule_id: str,
     request: Request,
