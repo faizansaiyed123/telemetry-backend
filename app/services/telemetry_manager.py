@@ -251,6 +251,7 @@ class TelemetryManager:
             return 0, 0
 
         broadcasts: list[Alert] = []
+        queued_for_persistence = 0
         async with self._lock:
             for event in events:
                 normalized = event.model_copy(update={"host_id": host_id, "source": "agent"})
@@ -259,7 +260,7 @@ class TelemetryManager:
                 self._events_ingested += 1
 
                 if self._persistence is not None:
-                    self._persistence.enqueue(normalized, host_id)
+                    queued_for_persistence += int(self._persistence.enqueue(normalized, host_id))
 
                 detector = self._get_detector(host_id)
                 anomaly_results = detector.update(normalized)
@@ -267,7 +268,7 @@ class TelemetryManager:
                 broadcasts.extend(self._process_rule_actions(self._rule_engine.evaluate(normalized)))
 
         await self._finalize_alerts(broadcasts)
-        return len(events), len(events) if self._persistence is not None else 0
+        return len(events), queued_for_persistence
 
     async def refresh_rules(self) -> None:
         """Reload enabled rules; active alerts from removed rules are resolved."""
