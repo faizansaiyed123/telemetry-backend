@@ -32,6 +32,21 @@ class IncidentState:
     active_alert_ids: set[str] = field(default_factory=set)
     resolved_at: datetime | None = None
 
+    def snapshot(self) -> "IncidentState":
+        """Return an immutable-at-enqueue-time copy for background persistence."""
+        return IncidentState(
+            id=self.id,
+            host_id=self.host_id,
+            title=self.title,
+            status=self.status,
+            severity=self.severity,
+            first_seen_at=self.first_seen_at,
+            last_seen_at=self.last_seen_at,
+            alert_ids=set(self.alert_ids),
+            active_alert_ids=set(self.active_alert_ids),
+            resolved_at=self.resolved_at,
+        )
+
 
 @dataclass(slots=True)
 class IncidentPersistenceEvent:
@@ -200,7 +215,8 @@ class IncidentEngine:
                 continue
             if incident.status == "resolved":
                 continue
-            if alert.timestamp - incident.last_seen_at <= CORRELATION_WINDOW:
+            delta = alert.timestamp - incident.last_seen_at
+            if timedelta(0) <= delta <= CORRELATION_WINDOW:
                 return incident
         return None
 
@@ -227,7 +243,9 @@ class IncidentEngine:
         incident.active_alert_ids.add(alert.id)
         self._alert_to_incident[alert.id] = incident.id
         if self._persistence is not None:
-            self._persistence.enqueue(IncidentPersistenceEvent(incident=incident, alert_id=alert.id))
+            self._persistence.enqueue(
+                IncidentPersistenceEvent(incident=incident.snapshot(), alert_id=alert.id)
+            )
         return incident
 
     def on_alert_resolved(self, alert: Alert) -> IncidentState | None:
@@ -245,7 +263,7 @@ class IncidentEngine:
             incident.resolved_at = alert.resolved_at or alert.timestamp
             platform_metrics.increment("incident_resolved_total")
         if self._persistence is not None:
-            self._persistence.enqueue(IncidentPersistenceEvent(incident=incident))
+            self._persistence.enqueue(IncidentPersistenceEvent(incident=incident.snapshot()))
         return incident
 
     def acknowledge(self, incident_id: str) -> IncidentState | None:
