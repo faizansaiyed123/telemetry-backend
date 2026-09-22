@@ -5,13 +5,19 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.api.alert_rules import router as alert_rules_router
 from app.api.alerts import router as alerts_router
+from app.api.api_keys import router as api_keys_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.hosts import router as hosts_router
+from app.api.incidents import router as incidents_router
+from app.api.ingestion import router as ingestion_router
+from app.api.observability import router as observability_router
 from app.api.simulation import router as simulation_router
 from app.api.telemetry import router as telemetry_router
 from app.api.users import router as users_router
@@ -19,9 +25,18 @@ from app.api.websocket import router as websocket_router
 from app.core.bootstrap import bootstrap_data
 from app.core.config import get_settings
 from app.core.logging import setup_logging
+from app.core.rate_limit import RateLimitExceeded, rate_limiter
+from app.services.platform_metrics import platform_metrics
 from app.services.telemetry_manager import TelemetryManager
 
 logger = logging.getLogger(__name__)
+
+
+def _client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 @asynccontextmanager
@@ -47,10 +62,35 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
-        description="Real-time telemetry dashboard backend with WebSocket streaming",
+        version="0.2.0",
+        description="Production-oriented real-time telemetry and observability backend",
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def abuse_protection(request: Request, call_next):
+        path = request.url.path
+        try:
+            if request.method == "POST" and path == "/api/auth/login":
+                rate_limiter.check(f"login:{_client_key(request)}", limit=10, window_seconds=60)
+            elif request.method == "POST" and path == "/api/auth/signup":
+                rate_limiter.check(f"signup:{_client_key(request)}", limit=5, window_seconds=60)
+            elif request.method == "POST" and path == "/api/ingest/v1/telemetry":
+                credential = request.headers.get("x-telemetry-key") or _client_key(request)
+                rate_limiter.check(f"ingest:{credential}", limit=120, window_seconds=60)
+        except RateLimitExceeded as exc:
+            if path.startswith("/api/auth/"):
+                platform_metrics.increment("auth_rate_limited_total")
+            elif path.startswith("/api/ingest/"):
+                platform_metrics.increment("ingestion_rate_limited_total")
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests", "retry_after": exc.retry_after},
+                headers={"Retry-After": str(exc.retry_after)},
+            )
+
+        return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -66,6 +106,11 @@ def create_app() -> FastAPI:
     app.include_router(alerts_router)
     app.include_router(simulation_router)
     app.include_router(websocket_router)
+    app.include_router(api_keys_router)
+    app.include_router(ingestion_router)
+    app.include_router(alert_rules_router)
+    app.include_router(incidents_router)
+    app.include_router(observability_router)
     return app
 
 
