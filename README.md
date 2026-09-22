@@ -561,7 +561,11 @@ The current migration chain is:
         ↓
 0005_telemetry_query_index
         ↓
-0006_notification_pipeline
+0006_telemetry_storage_hardening
+        ↓
+0007_change_events
+        ↓
+0008_notification_pipeline
 ```
 
 ## Testing strategy
