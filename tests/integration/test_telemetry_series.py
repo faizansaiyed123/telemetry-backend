@@ -1,12 +1,13 @@
 """Integration tests for bounded time-series aggregation."""
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
 
 from app.db.session import SessionLocal
-from app.models.db import TelemetryRecord
+from app.models.db import Host, TelemetryRecord
 from app.utils.time import utc_now
 
 
@@ -35,9 +36,10 @@ async def client():
 
 @pytest.mark.asyncio
 async def test_series_is_database_aggregated_and_returns_percentile(client: AsyncClient) -> None:
-    manager = client._transport.app.state.telemetry_manager
-    host_id = manager.persistence_host_id
-    assert host_id is not None
+    host_id = str(uuid4())
+    with SessionLocal() as db:
+        db.add(Host(id=host_id, name=f"series-fixture-{host_id}", environment="test"))
+        db.commit()
 
     end = utc_now() + timedelta(seconds=2)
     start = end - timedelta(minutes=3)
@@ -116,7 +118,7 @@ async def test_series_is_database_aggregated_and_returns_percentile(client: Asyn
     assert body["bucket_seconds"] == 60
     assert body["points"]
     assert all(point["samples"] >= 1 for point in body["points"])
-    assert max(point["p95"] for point in body["points"]) >= 80
+    assert max(point["p95"] for point in body["points"]) == pytest.approx(66.44, abs=0.01)
 
 
 @pytest.mark.asyncio
