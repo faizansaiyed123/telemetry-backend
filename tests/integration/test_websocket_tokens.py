@@ -19,6 +19,28 @@ def test_ws_token_requires_authentication(app):
         assert response.status_code == 401
 
 
+def test_ws_token_rejects_wrong_audience(app):
+    with TestClient(app) as client:
+        settings = get_settings()
+        login = client.post(
+            "/api/auth/login",
+            data={
+                "username": settings.bootstrap_admin_email,
+                "password": settings.bootstrap_admin_password,
+            },
+        )
+        assert login.status_code == 200
+        client.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+
+        from app.core.security import create_access_token
+
+        normal_token = create_access_token("not-a-real-user", "viewer")
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/ws/telemetry?token={normal_token}"):
+                pass
+        assert exc_info.value.code == 1008
+
+
 def test_ws_token_is_single_use(app):
     with TestClient(app) as client:
         settings = get_settings()
