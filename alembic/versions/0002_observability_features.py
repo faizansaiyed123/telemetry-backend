@@ -18,6 +18,18 @@ def upgrade() -> None:
     op.add_column("hosts", sa.Column("agent_version", sa.String(length=64), nullable=True))
     op.create_index("ix_hosts_last_seen_at", "hosts", ["last_seen_at"])
 
+    op.add_column(
+        "telemetry_records",
+        sa.Column("source", sa.String(length=16), nullable=False, server_default="synthetic"),
+    )
+    op.add_column("telemetry_records", sa.Column("agent_version", sa.String(length=64), nullable=True))
+    op.add_column(
+        "telemetry_records",
+        sa.Column("received_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+    op.create_index("ix_telemetry_records_source", "telemetry_records", ["source"])
+    op.create_index("ix_telemetry_records_received_at", "telemetry_records", ["received_at"])
+
     op.create_table(
         "api_keys",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -124,6 +136,11 @@ def downgrade() -> None:
     op.drop_index("ix_api_keys_key_hash", table_name="api_keys")
     op.drop_index("ix_api_keys_host_id", table_name="api_keys")
     op.drop_table("api_keys")
+    op.drop_index("ix_telemetry_records_received_at", table_name="telemetry_records")
+    op.drop_index("ix_telemetry_records_source", table_name="telemetry_records")
+    op.drop_column("telemetry_records", "received_at")
+    op.drop_column("telemetry_records", "agent_version")
+    op.drop_column("telemetry_records", "source")
     op.drop_index("ix_hosts_last_seen_at", table_name="hosts")
     op.drop_column("hosts", "agent_version")
     op.drop_column("hosts", "last_seen_at")
