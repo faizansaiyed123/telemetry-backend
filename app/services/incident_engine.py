@@ -276,7 +276,6 @@ class IncidentEngine:
         if incident is None or incident.status == "resolved":
             return None
         incident.status = "acknowledged"
-        incident.last_seen_at = datetime.now(timezone.utc)
         if self._persistence is not None:
             self._persistence.enqueue(
                 IncidentPersistenceEvent(incident=incident.snapshot())
