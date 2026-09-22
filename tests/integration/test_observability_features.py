@@ -233,6 +233,7 @@ async def test_incident_acknowledgement_is_audited(client: AsyncClient) -> None:
         },
     )
     assert created.status_code == 201
+    await client.post("/api/simulation/pause")
     manager = client._transport.app.state.telemetry_manager
     from app.models.telemetry import TelemetryEvent
 
@@ -255,6 +256,7 @@ async def test_incident_acknowledgement_is_audited(client: AsyncClient) -> None:
 
     incidents = await client.get("/api/incidents")
     incident_id = incidents.json()[0]["id"]
+    assert incidents.json()[0]["status"] == "open"
 
     ack = await client.post(f"/api/incidents/{incident_id}/acknowledge")
     assert ack.status_code == 200
