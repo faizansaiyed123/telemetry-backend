@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -290,3 +291,51 @@ async def test_signup_rate_limit_returns_429(client: AsyncClient) -> None:
     assert responses[5].status_code == 429
     assert "retry_after" in responses[5].json()
     rate_limiter.reset()
+
+
+@pytest.mark.asyncio
+async def test_resolved_incident_history_survives_runtime_rehydration(client: AsyncClient) -> None:
+    created = await client.post(
+        "/api/alert-rules",
+        json={
+            "name": f"restart-rule-{uuid4().hex}",
+            "metric": "cpu",
+            "operator": ">",
+            "threshold": 80,
+            "duration_seconds": 0,
+            "cooldown_seconds": 60,
+        },
+    )
+    assert created.status_code == 201
+    manager = client._transport.app.state.telemetry_manager
+
+    from app.models.telemetry import TelemetryEvent
+
+    base = datetime.now(timezone.utc)
+    high = TelemetryEvent(
+        timestamp=base,
+        sequence=901000,
+        cpu=95,
+        memory=50,
+        temperature=45,
+        network_mbps=10,
+        requests_per_second=100,
+        error_rate=0.1,
+        latency_ms=20,
+        host_id=manager.persistence_host_id,
+        source="api",
+    )
+    low = high.model_copy(
+        update={"sequence": 901001, "timestamp": base + timedelta(seconds=1), "cpu": 20}
+    )
+    await manager.process_event(high, persist=False)
+    await manager.process_event(low, persist=False)
+    await asyncio.sleep(0.25)
+
+    manager.incident_engine._incidents.clear()
+    manager.incident_engine._alert_to_incident.clear()
+    manager.incident_engine.hydrate()
+
+    incidents = await client.get("/api/incidents")
+    assert incidents.status_code == 200
+    assert any(item["status"] == "resolved" for item in incidents.json())
