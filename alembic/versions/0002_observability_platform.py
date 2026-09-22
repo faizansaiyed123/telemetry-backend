@@ -14,29 +14,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("alert_records", sa.Column("source", sa.String(length=32), nullable=False, server_default="anomaly"))
-    op.add_column("alert_records", sa.Column("rule_id", sa.String(length=36), nullable=True))
-    op.add_column("alert_records", sa.Column("incident_id", sa.String(length=36), nullable=True))
-    op.create_index("ix_alert_records_source", "alert_records", ["source"])
-    op.create_index("ix_alert_records_rule_id", "alert_records", ["rule_id"])
-    op.create_index("ix_alert_records_incident_id", "alert_records", ["incident_id"])
-    op.create_foreign_key(
-        "fk_alert_records_rule_id_alert_rules",
-        "alert_records",
-        "alert_rules",
-        ["rule_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_alert_records_incident_id_incidents",
-        "alert_records",
-        "incidents",
-        ["incident_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
-
     op.create_table(
         "api_keys",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -108,8 +85,43 @@ def upgrade() -> None:
     op.create_index("ix_audit_logs_action", "audit_logs", ["action"])
     op.create_index("ix_audit_logs_created_at", "audit_logs", ["created_at"])
 
+    op.add_column(
+        "alert_records",
+        sa.Column("source", sa.String(length=32), nullable=False, server_default="anomaly"),
+    )
+    op.add_column("alert_records", sa.Column("rule_id", sa.String(length=36), nullable=True))
+    op.add_column("alert_records", sa.Column("incident_id", sa.String(length=36), nullable=True))
+    op.create_index("ix_alert_records_source", "alert_records", ["source"])
+    op.create_index("ix_alert_records_rule_id", "alert_records", ["rule_id"])
+    op.create_index("ix_alert_records_incident_id", "alert_records", ["incident_id"])
+    op.create_foreign_key(
+        "fk_alert_records_rule_id_alert_rules",
+        "alert_records",
+        "alert_rules",
+        ["rule_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+    op.create_foreign_key(
+        "fk_alert_records_incident_id_incidents",
+        "alert_records",
+        "incidents",
+        ["incident_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+
 
 def downgrade() -> None:
+    op.drop_constraint("fk_alert_records_incident_id_incidents", "alert_records", type_="foreignkey")
+    op.drop_constraint("fk_alert_records_rule_id_alert_rules", "alert_records", type_="foreignkey")
+    op.drop_index("ix_alert_records_incident_id", table_name="alert_records")
+    op.drop_index("ix_alert_records_rule_id", table_name="alert_records")
+    op.drop_index("ix_alert_records_source", table_name="alert_records")
+    op.drop_column("alert_records", "incident_id")
+    op.drop_column("alert_records", "rule_id")
+    op.drop_column("alert_records", "source")
+
     op.drop_index("ix_audit_logs_created_at", table_name="audit_logs")
     op.drop_index("ix_audit_logs_action", table_name="audit_logs")
     op.drop_index("ix_audit_logs_actor_user_id", table_name="audit_logs")
@@ -129,12 +141,3 @@ def downgrade() -> None:
     op.drop_index("ix_api_keys_key_hash", table_name="api_keys")
     op.drop_index("ix_api_keys_host_id", table_name="api_keys")
     op.drop_table("api_keys")
-
-    op.drop_constraint("fk_alert_records_incident_id_incidents", "alert_records", type_="foreignkey")
-    op.drop_constraint("fk_alert_records_rule_id_alert_rules", "alert_records", type_="foreignkey")
-    op.drop_index("ix_alert_records_incident_id", table_name="alert_records")
-    op.drop_index("ix_alert_records_rule_id", table_name="alert_records")
-    op.drop_index("ix_alert_records_source", table_name="alert_records")
-    op.drop_column("alert_records", "incident_id")
-    op.drop_column("alert_records", "rule_id")
-    op.drop_column("alert_records", "source")
