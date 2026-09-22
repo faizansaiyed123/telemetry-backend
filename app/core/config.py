@@ -40,11 +40,25 @@ class Settings(BaseSettings):
     telemetry_persistence_enabled: bool = True
     telemetry_host_name: str = "synthetic-local"
     telemetry_host_environment: str = "development"
+    telemetry_retention_enabled: bool = True
+    telemetry_retention_hours: int = 168
+    telemetry_retention_cleanup_interval_seconds: int = 3600
+    telemetry_retention_batch_size: int = 1000
+    telemetry_retention_max_batches_per_run: int = 20
 
     anomaly_z_threshold: float = 3.0
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
-    @field_validator("telemetry_rate", "max_telemetry_rate", "max_history_size", "access_token_expire_minutes")
+    @field_validator(
+        "telemetry_rate",
+        "max_telemetry_rate",
+        "max_history_size",
+        "access_token_expire_minutes",
+        "telemetry_retention_hours",
+        "telemetry_retention_cleanup_interval_seconds",
+        "telemetry_retention_batch_size",
+        "telemetry_retention_max_batches_per_run",
+    )
     @classmethod
     def validate_positive_integer(cls, v: int) -> int:
         if v < 1:
