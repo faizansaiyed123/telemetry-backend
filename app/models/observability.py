@@ -213,3 +213,56 @@ class SLOStatusResponse(BaseModel):
     error_budget_percent: float
     error_budget_remaining_percent: float
     compliant: bool
+
+
+class ChangeEventCreate(BaseModel):
+    event_type: str = Field(default="deployment", pattern=r"^(deployment|config|feature_flag|maintenance|rollback|other)$")
+    title: str = Field(min_length=3, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    host_id: str | None = None
+    source: str = Field(default="manual", min_length=2, max_length=32)
+    external_ref: str | None = Field(default=None, max_length=256)
+    occurred_at: datetime | None = None
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Change title must not be blank")
+        return normalized
+
+
+class ChangeEventResponse(BaseModel):
+    id: str
+    host_id: str | None
+    event_type: str
+    title: str
+    description: str | None
+    source: str
+    actor_user_id: str | None
+    external_ref: str | None
+    occurred_at: datetime
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IncidentTimelineItem(BaseModel):
+    kind: str = Field(pattern=r"^(alert|change)$")
+    timestamp: datetime
+    title: str
+    severity: str | None = None
+    status: str | None = None
+    reference_id: str
+    source: str | None = None
+
+
+class IncidentEvidenceResponse(BaseModel):
+    incident: IncidentResponse
+    timeline: list[IncidentTimelineItem]
+    alert_count: int
+    metric_count: int
+    change_count: int
+    correlation_window_minutes: int
+    findings: list[str]
