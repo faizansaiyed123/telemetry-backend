@@ -6,11 +6,13 @@ import asyncio
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import insert
+from sqlalchemy import update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.session import SessionLocal
-from app.models.db import TelemetryRecord
+from app.models.db import Host, TelemetryRecord
 from app.models.telemetry import TelemetryEvent
+from app.services.platform_metrics import platform_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +62,7 @@ class TelemetryPersistence:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
             self.dropped_events += 1
+            platform_metrics.increment("telemetry_persistence_dropped_total")
             logger.warning(
                 "Telemetry persistence queue full; dropping event sequence=%s",
                 event.sequence,
@@ -100,11 +103,15 @@ class TelemetryPersistence:
                 retry_batch = batch
                 await asyncio.sleep(1)
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
     async def _persist(self, events: Sequence[TelemetryEvent]) -> None:
         """Persist one batch in a short-lived synchronous database session."""
         rows = [
             {
-                "host_id": self.host_id,
+                "host_id": event.host_id or self.host_id,
                 "timestamp": event.timestamp,
                 "sequence": event.sequence,
                 "cpu": event.cpu,
@@ -114,10 +121,31 @@ class TelemetryPersistence:
                 "requests_per_second": event.requests_per_second,
                 "error_rate": event.error_rate,
                 "latency_ms": event.latency_ms,
+                "source": event.source,
+                "agent_version": event.agent_version,
             }
             for event in events
         ]
         with SessionLocal() as db:
-            db.execute(insert(TelemetryRecord), rows)
+            result = db.execute(
+                pg_insert(TelemetryRecord)
+                .values(rows)
+                .on_conflict_do_nothing(constraint="uq_telemetry_host_sequence")
+            )
+            rowcount = result.rowcount
+            inserted_count = rowcount if isinstance(rowcount, int) and rowcount >= 0 else len(rows)
+            host_updates: dict[str, object] = {}
+            for event in events:
+                host_id = event.host_id or self.host_id
+                previous = host_updates.get(host_id)
+                if previous is None or event.timestamp > previous:
+                    host_updates[host_id] = event.timestamp
+            for host_id, last_seen_at in host_updates.items():
+                db.execute(
+                    update(Host)
+                    .where(Host.id == host_id)
+                    .values(last_seen_at=last_seen_at)
+                )
             db.commit()
-        self.persisted_events += len(rows)
+        self.persisted_events += inserted_count
+        platform_metrics.increment("telemetry_persisted_total", inserted_count)

@@ -11,6 +11,7 @@ from sqlalchemy import update
 from app.db.session import SessionLocal
 from app.models.alerts import Alert
 from app.models.db import AlertRecord
+from app.services.platform_metrics import platform_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class AlertPersistence:
             )
         except asyncio.QueueFull:
             self.dropped_events += 1
+            platform_metrics.increment("alert_persistence_dropped_total")
             logger.warning("Alert persistence queue full; dropping alert id=%s", alert.id)
 
     async def _worker(self) -> None:
@@ -90,6 +92,10 @@ class AlertPersistence:
                 retry_item = item
                 await asyncio.sleep(1)
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
     async def _persist(self, item: AlertPersistenceEvent) -> None:
         alert = item.alert
         with SessionLocal() as db:
@@ -106,6 +112,8 @@ class AlertPersistence:
                         message=alert.message,
                         status="resolved" if alert.resolved else "active",
                         acknowledged=alert.acknowledged,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
                         timestamp=alert.timestamp,
                         resolved_at=alert.resolved_at,
                     )
@@ -121,6 +129,8 @@ class AlertPersistence:
                         message=alert.message,
                         status="resolved" if alert.resolved else "active",
                         acknowledged=existing.acknowledged or alert.acknowledged,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
                         resolved_at=alert.resolved_at,
                     )
                 )

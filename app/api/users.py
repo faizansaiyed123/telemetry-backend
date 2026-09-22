@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.api.auth import get_current_user
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.db import User
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -65,7 +66,8 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)):
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
-    _: User = Depends(require_admin),
+    request: Request,
+    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     email = payload.email.strip().lower()
@@ -86,6 +88,15 @@ def create_user(
         role=validate_role(payload.role),
     )
     db.add(user)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="user.created",
+        resource_type="user",
+        resource_id=user.id,
+        details={"fields": ["email", "role"]},
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -95,6 +106,7 @@ def create_user(
 def update_user(
     user_id: str,
     payload: UserUpdate,
+    request: Request,
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -141,6 +153,15 @@ def update_user(
     for key, value in values.items():
         setattr(user, key, value)
 
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="user.updated",
+        resource_type="user",
+        resource_id=user.id,
+        details={"fields": list(values)},
+    )
     db.commit()
     db.refresh(user)
     return user

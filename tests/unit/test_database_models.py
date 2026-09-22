@@ -1,13 +1,19 @@
 from app.db.session import Base
-from app.models.db import AlertRecord, Host, TelemetryRecord, User
+from app.models.db import AlertRecord, Host, SLO, TelemetryRecord, User
 
 
 def test_persistent_models_are_registered() -> None:
     assert set(Base.metadata.tables) == {
         "users",
         "hosts",
+        "api_keys",
+        "alert_rules",
         "telemetry_records",
         "alert_records",
+        "incidents",
+        "incident_alerts",
+        "audit_logs",
+        "slos",
     }
 
 

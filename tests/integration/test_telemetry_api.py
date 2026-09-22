@@ -134,3 +134,48 @@ class TestTelemetryAPI:
         data = response.json()
         assert "alerts" in data
         assert isinstance(data["alerts"], list)
+
+
+    async def test_history_time_range_filter(self, client_with_events):
+        response = await client_with_events.get("/api/telemetry/history?limit=10")
+        assert response.status_code == 200
+        events = response.json()["events"]
+        if len(events) < 3:
+            pytest.skip("not enough events generated for range assertion")
+
+        start = events[1]["timestamp"]
+        end = events[-1]["timestamp"]
+        ranged = await client_with_events.get(
+            "/api/telemetry/history",
+            params={"limit": 10, "start": start, "end": end},
+        )
+        assert ranged.status_code == 200
+        filtered = ranged.json()["events"]
+        assert all(start <= item["timestamp"] < end for item in filtered)
+
+    async def test_stats_time_range_matches_history(self, client_with_events):
+        history = await client_with_events.get("/api/telemetry/history?limit=20")
+        events = history.json()["events"]
+        if len(events) < 2:
+            pytest.skip("not enough events generated for range assertion")
+
+        start = events[0]["timestamp"]
+        end = events[-1]["timestamp"]
+        ranged = await client_with_events.get(
+            "/api/telemetry/history",
+            params={"limit": 20, "start": start, "end": end},
+        )
+        stats = await client_with_events.get(
+            "/api/telemetry/stats",
+            params={"start": start, "end": end},
+        )
+        assert ranged.status_code == 200
+        assert stats.status_code == 200
+        assert stats.json()["count"] == ranged.json()["count"]
+
+    async def test_time_range_rejects_inverted_bounds(self, client):
+        response = await client.get(
+            "/api/telemetry/history",
+            params={"start": "2026-01-02T00:00:00Z", "end": "2026-01-01T00:00:00Z"},
+        )
+        assert response.status_code == 422

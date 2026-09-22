@@ -22,6 +22,9 @@ dependencies = [
     "psutil>=6.1.0,<7.0.0",
 ]
 
+[project.scripts]
+telemetry-agent = "agent.telemetry_agent:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.0,<8.4.0",
@@ -41,5 +44,5 @@ filterwarnings = [
 package = true
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "agent*"]
 exclude = ["tests*", "alembic*"]

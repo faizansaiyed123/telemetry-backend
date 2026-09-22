@@ -137,3 +137,27 @@ class TestAnomalyDetector:
         r2 = d2.update(event)
         assert r1[0].is_anomaly == r2[0].is_anomaly
         assert r1[0].z_score == r2[0].z_score
+
+
+    def test_host_isolation(self):
+        """A host's baseline must not influence another host."""
+        d = AnomalyDetector(threshold=3.0, window_size=50, min_history=10)
+        for i in range(12):
+            d.update(make_event(sequence=i, cpu=50.0))
+            d.update(make_event(sequence=i, cpu=95.0, memory=60.0))
+
+        
+
+        host_a = make_event(sequence=100, cpu=50.0)
+        host_a = host_a.model_copy(update={"host_id": "host-a"})
+        host_b = make_event(sequence=100, cpu=50.0)
+        host_b = host_b.model_copy(update={"host_id": "host-b"})
+        for i in range(12):
+            event_a = host_a.model_copy(update={"sequence": i})
+            event_b = host_b.model_copy(update={"sequence": i})
+            d.update(event_a)
+            d.update(event_b)
+
+        results = d.update(host_b.model_copy(update={"sequence": 200, "cpu": 95.0}))
+        cpu_result = [item for item in results if item.metric == "cpu"][0]
+        assert cpu_result.is_anomaly

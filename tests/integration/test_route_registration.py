@@ -31,6 +31,25 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/simulation/reset"),
     ("POST", "/api/simulation/rate"),
     ("POST", "/api/simulation/trigger"),
+    ("GET", "/api/api-keys"),
+    ("POST", "/api/api-keys/hosts/{host_id}"),
+    ("POST", "/api/api-keys/{key_id}/revoke"),
+    ("POST", "/api/ingest/v1/telemetry"),
+    ("GET", "/api/alert-rules"),
+    ("POST", "/api/alert-rules"),
+    ("PATCH", "/api/alert-rules/{rule_id}"),
+    ("DELETE", "/api/alert-rules/{rule_id}"),
+    ("GET", "/api/incidents"),
+    ("GET", "/api/incidents/{incident_id}"),
+    ("POST", "/api/incidents/{incident_id}/acknowledge"),
+    ("GET", "/api/observability/metrics"),
+    ("GET", "/api/observability/metrics/prometheus"),
+    ("GET", "/api/observability/audit-logs"),
+    ("GET", "/api/slos"),
+    ("GET", "/api/slos/{slo_id}/status"),
+    ("POST", "/api/slos"),
+    ("PATCH", "/api/slos/{slo_id}"),
+    ("DELETE", "/api/slos/{slo_id}"),
 }
 
 
@@ -50,3 +69,18 @@ def test_telemetry_websocket_route_is_registered() -> None:
     app = create_app()
     websocket_paths = {route.path for route in app.routes if route.__class__.__name__ == "APIWebSocketRoute"}
     assert "/ws/telemetry" in websocket_paths
+
+
+def test_no_duplicate_http_method_paths_are_registered() -> None:
+    app = create_app()
+    seen = set()
+    duplicates = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        for method in route.methods:
+            key = (method, route.path)
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+    assert duplicates == []

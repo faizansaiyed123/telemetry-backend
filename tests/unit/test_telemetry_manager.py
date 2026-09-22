@@ -93,7 +93,7 @@ def test_resolving_alert_is_persisted() -> None:
         severity=Severity.CRITICAL,
         message="CPU anomaly",
     )
-    manager._active_alerts["cpu"] = alert
+    manager._active_alerts["anomaly:system:cpu"] = alert
     manager._alerts.append(alert)
 
     result = AnomalyResult(
