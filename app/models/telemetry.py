@@ -11,7 +11,7 @@ class TelemetryEvent(BaseModel):
     """A single telemetry event representing a point-in-time system snapshot."""
 
     timestamp: datetime
-    sequence: int = Field(ge=0, description="Monotonically increasing sequence number")
+    sequence: int = Field(ge=0, description="Source sequence number; monotonic per host/source")
     cpu: float = Field(ge=0, le=100, description="CPU usage percentage")
     memory: float = Field(ge=0, le=100, description="Memory usage percentage")
     temperature: float = Field(ge=0, le=120, description="Temperature in Celsius")
