@@ -31,6 +31,10 @@ class AlertPersistence:
         self.dropped_events = 0
         self.persisted_events = 0
 
+    @property
+    def queue_size(self) -> int:
+        return self._queue.qsize()
+
     async def start(self) -> None:
         if self._task is None:
             self._stopping = False
