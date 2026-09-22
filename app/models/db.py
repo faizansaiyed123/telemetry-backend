@@ -196,7 +196,7 @@ class NotificationChannel(Base):
     channel_type: Mapped[str] = mapped_column(String(32), default="webhook")
     webhook_url: Mapped[str] = mapped_column(String(2048))
     min_severity: Mapped[str] = mapped_column(String(16), default="WARNING")
-    notify_alerts: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_alerts: Mapped[bool] = mapped_column(Boolean, default=False)
     notify_incidents: Mapped[bool] = mapped_column(Boolean, default=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_by: Mapped[str | None] = mapped_column(
