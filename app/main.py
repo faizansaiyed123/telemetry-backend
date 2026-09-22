@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
-from time import monotonic
+import re
 from contextlib import asynccontextmanager
+from time import monotonic
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +31,7 @@ from app.core.bootstrap import bootstrap_data
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitExceeded, rate_limiter
+from app.core.request_context import reset_request_id, set_request_id
 from app.services.platform_metrics import platform_metrics
 from app.services.telemetry_manager import TelemetryManager
 
@@ -71,7 +74,16 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def abuse_protection(request: Request, call_next):
+    async def request_context_and_abuse_protection(request: Request, call_next):
+        incoming_request_id = request.headers.get("X-Request-ID", "")
+        request_id = (
+            incoming_request_id
+            if re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", incoming_request_id)
+            else uuid4().hex
+        )
+        token = set_request_id(request_id)
+        request.state.request_id = request_id
+
         path = request.url.path
         rate_key: str | None = None
 
@@ -84,7 +96,7 @@ def create_app() -> FastAPI:
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Too many failed authentication attempts", "retry_after": exc.retry_after},
-                    headers={"Retry-After": str(exc.retry_after)},
+                    headers={"Retry-After": str(exc.retry_after), "X-Request-ID": request_id},
                 )
         elif request.method == "POST" and path == "/api/auth/signup":
             rate_key = f"signup:{_client_key(request)}"
