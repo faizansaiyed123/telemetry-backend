@@ -32,6 +32,11 @@ _COUNTER_NAMES = (
     "telemetry_retention_runs_total",
     "telemetry_retention_deleted_total",
     "telemetry_retention_errors_total",
+    "notification_queue_dropped_total",
+    "notification_delivered_total",
+    "notification_failed_total",
+    "notification_retries_total",
+    "notification_worker_errors_total",
 )
 
 _GAUGE_NAMES = (
@@ -40,6 +45,7 @@ _GAUGE_NAMES = (
     "alert_persistence_queue_depth",
     "incident_persistence_queue_depth",
     "open_incidents",
+    "notification_queue_depth",
 )
 
 
