@@ -126,8 +126,11 @@ class TelemetryManager:
         """Start the synthetic telemetry generation task."""
         if self._running:
             return
-        await self.refresh_rules()
-        await self._incident_manager.load_open()
+        try:
+            await self.refresh_rules()
+            await self._incident_manager.load_open()
+        except Exception:
+            logger.exception("Unable to load persisted observability state; starting with in-memory state")
         self._running = True
         self._stop_event.clear()
         self._start_time = utc_now()
@@ -173,7 +176,10 @@ class TelemetryManager:
     async def resume(self) -> None:
         if self._running:
             return
-        await self.refresh_rules()
+        try:
+            await self.refresh_rules()
+        except Exception:
+            logger.exception("Unable to refresh alert rules before resume; continuing with cached rules")
         self._running = True
         self._stop_event.clear()
         await self._ensure_persistence()
@@ -492,6 +498,10 @@ class TelemetryManager:
 
     def get_current(self) -> TelemetryEvent | None:
         return self._current
+
+    @property
+    def history_size(self) -> int:
+        return len(self._history)
 
     def get_history(self, limit: int = 100) -> list[TelemetryEvent]:
         if limit < 1:
