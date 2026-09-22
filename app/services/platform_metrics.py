@@ -23,6 +23,11 @@ _COUNTER_NAMES = (
     "auth_rate_limited_total",
     "ingestion_rate_limited_total",
     "websocket_connections_total",
+    "http_requests_total",
+    "http_4xx_total",
+    "http_5xx_total",
+    "http_request_duration_seconds_sum",
+    "http_request_duration_seconds_count",
 )
 
 _GAUGE_NAMES = (
