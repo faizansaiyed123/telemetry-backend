@@ -20,6 +20,10 @@ class Alert(BaseModel):
 
     id: str
     timestamp: datetime
+    host_id: str | None = None
+    source: str = "anomaly"
+    rule_id: str | None = None
+    incident_id: str | None = None
     metric: str
     value: float
     baseline: float
