@@ -90,6 +90,10 @@ class AlertPersistence:
                 retry_item = item
                 await asyncio.sleep(1)
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
     async def _persist(self, item: AlertPersistenceEvent) -> None:
         alert = item.alert
         with SessionLocal() as db:
