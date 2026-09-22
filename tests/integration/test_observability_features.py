@@ -425,3 +425,17 @@ async def test_slo_status_tracks_error_budget_and_database_aggregation(client: A
     assert deleted.status_code == 204
     missing = await client.get(f"/api/slos/{slo_id}/status")
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_http_red_metrics_track_request_volume_and_duration(client: AsyncClient) -> None:
+    health = await client.get("/health")
+    assert health.status_code == 200
+
+    metrics = await client.get("/api/observability/metrics")
+    assert metrics.status_code == 200
+    body = metrics.json()
+    counters = body["counters"]
+    assert counters["http_requests_total"] >= 2
+    assert counters["http_request_duration_seconds_count"] >= 2
+    assert counters["http_request_duration_seconds_sum"] >= 0
