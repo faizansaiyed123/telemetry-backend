@@ -79,7 +79,7 @@ class IncidentPersistence:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
             self.dropped_events += 1
-            platform_metrics.increment("telemetry_persistence_dropped_total")
+            platform_metrics.increment("incident_persistence_dropped_total")
 
     async def _worker(self) -> None:
         retry: IncidentPersistenceEvent | None = None
