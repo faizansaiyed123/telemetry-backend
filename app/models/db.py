@@ -64,3 +64,6 @@ class AlertRecord(Base):
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="anomaly", server_default="anomaly", index=True)
+    rule_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    incident_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)

@@ -31,7 +31,7 @@ async def test_enqueue_and_persist_batch() -> None:
     with patch("app.services.telemetry_persistence.SessionLocal", return_value=session):
         persistence.enqueue(event(1))
         persistence.enqueue(event(2))
-        await persistence._persist([event(1), event(2)])
+        await persistence._persist([("host-1", event(1)), ("host-1", event(2))])
 
     session.execute.assert_called_once()
     rows = session.execute.call_args.args[1]
