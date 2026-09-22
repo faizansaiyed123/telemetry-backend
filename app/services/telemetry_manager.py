@@ -349,7 +349,10 @@ class TelemetryManager:
         platform_metrics.increment("alert_resolved_total")
         self._incident_engine.on_alert_resolved(existing)
         if self._alert_persistence is not None:
-            self._alert_persistence.enqueue(existing, existing.host_id)
+            self._alert_persistence.enqueue(
+                existing,
+                existing.host_id or self._persistence_host_id,
+            )
         return existing
 
     def _process_anomaly_results(
