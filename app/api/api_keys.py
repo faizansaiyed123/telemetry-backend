@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])
 def _response(key: ApiKey) -> ApiKeyResponse:
     return ApiKeyResponse(
         id=key.id,
+        host_id=key.host_id,
         name=key.name,
         key_prefix=key.key_prefix,
         created_at=key.created_at,
