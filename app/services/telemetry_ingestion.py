@@ -83,6 +83,8 @@ class TelemetryIngestionService:
                 "latency_ms": event.latency_ms,
                 "source": event.source,
                 "agent_version": event.agent_version,
+                "source": event.source,
+                "agent_version": event.agent_version,
             }
             for event in events_by_sequence.values()
         ]
