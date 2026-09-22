@@ -110,6 +110,8 @@ class AlertPersistence:
                         message=alert.message,
                         status="resolved" if alert.resolved else "active",
                         acknowledged=alert.acknowledged,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
                         timestamp=alert.timestamp,
                         resolved_at=alert.resolved_at,
                     )
@@ -125,6 +127,8 @@ class AlertPersistence:
                         message=alert.message,
                         status="resolved" if alert.resolved else "active",
                         acknowledged=existing.acknowledged or alert.acknowledged,
+                        source=alert.source,
+                        rule_id=alert.rule_id,
                         resolved_at=alert.resolved_at,
                     )
                 )
