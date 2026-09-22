@@ -42,6 +42,11 @@ class SlidingWindowRateLimiter:
 
             events.append(now)
 
+    def clear(self, key: str) -> None:
+        """Clear one caller window after a successful authentication."""
+        with self._lock:
+            self._events.pop(key, None)
+
     def reset(self) -> None:
         with self._lock:
             self._events.clear()
