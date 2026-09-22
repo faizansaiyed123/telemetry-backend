@@ -278,7 +278,7 @@ class NotificationChannelCreate(BaseModel):
     name: str = Field(min_length=3, max_length=120)
     webhook_url: str = Field(min_length=12, max_length=2048)
     min_severity: str = Field(default="WARNING", pattern=r"^(INFO|WARNING|CRITICAL)$")
-    notify_alerts: bool = True
+    notify_alerts: bool = False
     notify_incidents: bool = True
     enabled: bool = True
 
@@ -314,7 +314,7 @@ class NotificationChannelResponse(BaseModel):
     id: str
     name: str
     channel_type: str
-    webhook_url: str
+    webhook_url_masked: str
     min_severity: str
     notify_alerts: bool
     notify_incidents: bool
