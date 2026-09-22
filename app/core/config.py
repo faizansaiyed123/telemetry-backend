@@ -15,7 +15,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=True,
+        # Configuration follows the conventional uppercase environment-variable
+        # names documented in .env.example (for example, DATABASE_URL and
+        # CORS_ALLOWED_ORIGINS). Keep env lookup case-insensitive so the
+        # documented deployment contract matches Pydantic Settings behavior.
+        case_sensitive=False,
         extra="ignore",
     )
 
