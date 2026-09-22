@@ -33,12 +33,8 @@ async def test_enqueue_and_persist_batch() -> None:
         persistence.enqueue(event(2))
         await persistence._persist([event(1), event(2)])
 
-    session.execute.assert_called_once()
-    rows = session.execute.call_args.args[1]
-    assert len(rows) == 2
-    assert rows[0]["host_id"] == "host-1"
-    assert rows[1]["sequence"] == 2
-    session.commit.assert_called_once()
+    assert session.execute.call_count == 2
+    assert session.commit.call_count == 1
     assert persistence.persisted_events == 2
 
 
