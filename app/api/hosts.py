@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from app.api.auth import get_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.db import Host, User
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/hosts", tags=["hosts"])
 
@@ -33,6 +35,8 @@ class HostResponse(BaseModel):
     name: str
     environment: str
     is_active: bool
+    last_seen_at: datetime | None = None
+    agent_version: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -49,7 +53,12 @@ def list_hosts(_: User = Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.post("", response_model=HostResponse, status_code=status.HTTP_201_CREATED)
-def create_host(payload: HostCreate, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+def create_host(
+    payload: HostCreate,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     name = payload.name.strip()
     environment = payload.environment.strip()
     if not name:
@@ -66,13 +75,28 @@ def create_host(payload: HostCreate, _: User = Depends(require_admin), db: Sessi
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Host already exists")
     host = Host(id=str(uuid4()), name=name, environment=environment)
     db.add(host)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="host.created",
+        resource_type="host",
+        resource_id=host.id,
+        details={"name": host.name, "environment": host.environment},
+    )
     db.commit()
     db.refresh(host)
     return host
 
 
 @router.patch("/{host_id}", response_model=HostResponse)
-def update_host(host_id: str, payload: HostUpdate, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+def update_host(
+    host_id: str,
+    payload: HostUpdate,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     host = db.get(Host, host_id)
     if host is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host not found")
@@ -103,13 +127,27 @@ def update_host(host_id: str, payload: HostUpdate, _: User = Depends(require_adm
             )
     for key, value in values.items():
         setattr(host, key, value)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="host.updated",
+        resource_type="host",
+        resource_id=host.id,
+        details={"fields": list(values)},
+    )
     db.commit()
     db.refresh(host)
     return host
 
 
 @router.delete("/{host_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_host(host_id: str, _: User = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_host(
+    host_id: str,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     host = db.get(Host, host_id)
     if host is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Host not found")
@@ -120,4 +158,12 @@ def delete_host(host_id: str, _: User = Depends(require_admin), db: Session = De
             detail="The configured telemetry persistence host cannot be deleted",
         )
     db.delete(host)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="host.deleted",
+        resource_type="host",
+        resource_id=host_id,
+    )
     db.commit()
