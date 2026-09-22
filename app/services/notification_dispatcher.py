@@ -8,7 +8,7 @@ import json
 import logging
 import socket
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 import httpx
@@ -150,11 +150,12 @@ class NotificationDispatcher:
             self._task = None
 
     def enqueue_alert(self, alert: object) -> None:
+        severity = getattr(alert.severity, "value", alert.severity)
         self._enqueue(
             NotificationEnvelope(
                 event_type="alert",
                 event_id=str(alert.id),
-                severity=str(alert.severity),
+                severity=str(severity),
                 incident_id=getattr(alert, "incident_id", None),
                 alert_id=str(alert.id),
             )
@@ -318,7 +319,15 @@ class NotificationDispatcher:
     async def _deliver(self, delivery_id: str) -> None:
         with SessionLocal() as db:
             delivery = db.get(NotificationDelivery, delivery_id)
-            if delivery is None or delivery.status != "pending":
+            now = datetime.now(timezone.utc)
+            if (
+                delivery is None
+                or delivery.status != "pending"
+                or (
+                    delivery.next_attempt_at is not None
+                    and delivery.next_attempt_at > now
+                )
+            ):
                 return
             channel = db.get(NotificationChannel, delivery.channel_id)
             if channel is None or not channel.enabled:
@@ -386,8 +395,7 @@ class NotificationDispatcher:
                 return
 
             delay = BACKOFF_SECONDS[min(attempt_number - 1, len(BACKOFF_SECONDS) - 1)]
-            row.next_attempt_at = datetime.now(timezone.utc).replace(microsecond=0)
-            row.next_attempt_at = row.next_attempt_at + __import__("datetime").timedelta(seconds=delay)
+            row.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
             row.last_error = error
             db.commit()
 
