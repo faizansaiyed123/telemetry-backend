@@ -57,3 +57,25 @@ class CurrentTelemetryResponse(BaseModel):
 
     event: TelemetryEvent | None = None
     available: bool
+
+
+class TelemetrySeriesPoint(BaseModel):
+    """Downsampled telemetry point for chart-friendly time-series queries."""
+
+    timestamp: datetime
+    samples: int = Field(ge=1)
+    avg: float
+    min: float
+    max: float
+    p95: float
+
+
+class TelemetrySeriesResponse(BaseModel):
+    """Bounded, database-aggregated time-series response."""
+
+    host_id: str
+    metric: str
+    start: datetime
+    end: datetime
+    bucket_seconds: int
+    points: list[TelemetrySeriesPoint]
