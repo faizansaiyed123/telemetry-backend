@@ -19,8 +19,7 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         async with app.router.lifespan_context(app):
-            settings = get_settings()
-            response = await ac.post(
+                    response = await ac.post(
                 "/api/auth/login",
                 data={
                     "username": settings.bootstrap_admin_email,
@@ -36,7 +35,7 @@ async def client():
 async def test_create_and_list_change_event(client: AsyncClient) -> None:
     hosts = await client.get("/api/hosts")
     assert hosts.status_code == 200, hosts.text
-    host_id = hosts.json()["hosts"][0]["id"]
+    host_id = hosts.json()[0]["id"]
 
     occurred_at = utc_now() - timedelta(minutes=2)
     response = await client.post(
@@ -61,6 +60,21 @@ async def test_create_and_list_change_event(client: AsyncClient) -> None:
     listed = await client.get("/api/changes", params={"host_id": host_id})
     assert listed.status_code == 200, listed.text
     assert any(item["id"] == created["id"] for item in listed.json())
+
+
+@pytest.mark.asyncio
+async def test_change_event_requires_operator(client: AsyncClient) -> None:
+    settings = get_settings()
+    signup = await client.post(
+        "/api/auth/signup",
+        json={"email": "evidence-viewer@example.com", "password": "strong-pass-123"},
+    )
+    assert signup.status_code == 201, signup.text
+    viewer_token = signup.json()["access_token"]
+    viewer = AsyncClient(transport=client._transport, base_url="http://test", headers={"Authorization": f"Bearer {viewer_token}"})
+    response = await viewer.post("/api/changes", json={"title": "Should be denied"})
+    await viewer.aclose()
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
