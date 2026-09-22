@@ -104,6 +104,7 @@ class ApiKeyCreate(BaseModel):
 
 class ApiKeyResponse(BaseModel):
     id: str
+    host_id: str
     name: str
     key_prefix: str
     created_at: datetime
