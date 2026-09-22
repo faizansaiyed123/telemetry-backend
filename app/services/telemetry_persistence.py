@@ -6,10 +6,10 @@ import asyncio
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import insert
+from sqlalchemy import insert, update
 
 from app.db.session import SessionLocal
-from app.models.db import TelemetryRecord
+from app.models.db import Host, TelemetryRecord
 from app.models.telemetry import TelemetryEvent
 
 logger = logging.getLogger(__name__)
@@ -100,11 +100,15 @@ class TelemetryPersistence:
                 retry_batch = batch
                 await asyncio.sleep(1)
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
     async def _persist(self, events: Sequence[TelemetryEvent]) -> None:
         """Persist one batch in a short-lived synchronous database session."""
         rows = [
             {
-                "host_id": self.host_id,
+                "host_id": event.host_id or self.host_id,
                 "timestamp": event.timestamp,
                 "sequence": event.sequence,
                 "cpu": event.cpu,
@@ -119,5 +123,17 @@ class TelemetryPersistence:
         ]
         with SessionLocal() as db:
             db.execute(insert(TelemetryRecord), rows)
+            host_updates: dict[str, object] = {}
+            for event in events:
+                host_id = event.host_id or self.host_id
+                previous = host_updates.get(host_id)
+                if previous is None or event.timestamp > previous:
+                    host_updates[host_id] = event.timestamp
+            for host_id, last_seen_at in host_updates.items():
+                db.execute(
+                    update(Host)
+                    .where(Host.id == host_id)
+                    .values(last_seen_at=last_seen_at)
+                )
             db.commit()
         self.persisted_events += len(rows)
