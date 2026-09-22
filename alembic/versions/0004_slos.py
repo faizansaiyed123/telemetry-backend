@@ -1,7 +1,7 @@
 """Add SLO definitions.
 
 Revision ID: 0004_slos
-Revises: 0002_observability_features
+Revises: 0003_ingestion_idempotency
 """
 
 from alembic import op
