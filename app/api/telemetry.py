@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
@@ -11,7 +12,14 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import require_authenticated
 from app.db.session import get_db
 from app.models.db import TelemetryRecord, User
-from app.models.telemetry import CurrentTelemetryResponse, HistoryResponse, TelemetryEvent, TelemetryStats
+from app.models.telemetry import (
+    CurrentTelemetryResponse,
+    HistoryResponse,
+    TelemetryEvent,
+    TelemetrySeriesPoint,
+    TelemetrySeriesResponse,
+    TelemetryStats,
+)
 from app.services.aggregation import compute_stats
 
 router = APIRouter(prefix="/api/telemetry", tags=["telemetry"])
@@ -205,6 +213,100 @@ async def get_telemetry_history(
                 ]
 
     return HistoryResponse(events=events, count=len(events), limit=limit)
+
+
+@router.get("/series", response_model=TelemetrySeriesResponse)
+async def get_telemetry_series(
+    request: Request,
+    metric: str = Query(
+        default="latency_ms",
+        pattern=r"^(cpu|memory|temperature|network_mbps|requests_per_second|error_rate|latency_ms)$",
+    ),
+    host_id: str | None = Query(default=None),
+    start: datetime | None = Query(default=None, description="Inclusive UTC start timestamp"),
+    end: datetime | None = Query(default=None, description="Exclusive UTC end timestamp"),
+    bucket_seconds: int = Query(default=60, ge=1, le=86400),
+    _: User = Depends(require_authenticated),
+    db: Session = Depends(get_db),
+) -> TelemetrySeriesResponse:
+    """Return bounded database-side time-series aggregates for dashboard charts."""
+    normalized_start, normalized_end = _normalize_range(start, end)
+    now = datetime.now(timezone.utc)
+    range_end = normalized_end or now
+    range_start = normalized_start or (range_end - timedelta(hours=24))
+
+    duration_seconds = (range_end - range_start).total_seconds()
+    if duration_seconds <= 0:
+        raise HTTPException(status_code=422, detail="time range must be positive")
+    point_count = ceil(duration_seconds / bucket_seconds)
+    if point_count > 5000:
+        raise HTTPException(
+            status_code=422,
+            detail="bucket_seconds is too small for the requested time range; maximum 5000 points",
+        )
+
+    manager = request.app.state.telemetry_manager
+    target_host_id = host_id or manager.persistence_host_id
+    if target_host_id is None:
+        raise HTTPException(status_code=503, detail="No telemetry host is configured")
+
+    metric_column = {
+        "cpu": TelemetryRecord.cpu,
+        "memory": TelemetryRecord.memory,
+        "temperature": TelemetryRecord.temperature,
+        "network_mbps": TelemetryRecord.network_mbps,
+        "requests_per_second": TelemetryRecord.requests_per_second,
+        "error_rate": TelemetryRecord.error_rate,
+        "latency_ms": TelemetryRecord.latency_ms,
+    }[metric]
+
+    bucket = (
+        func.to_timestamp(
+            func.floor(
+                func.extract("epoch", TelemetryRecord.timestamp) / bucket_seconds
+            ) * bucket_seconds
+        )
+        .label("bucket")
+    )
+    stmt = (
+        select(
+            bucket,
+            func.count(TelemetryRecord.id).label("samples"),
+            func.avg(metric_column).label("avg"),
+            func.min(metric_column).label("min"),
+            func.max(metric_column).label("max"),
+            func.percentile_cont(0.95).within_group(metric_column).label("p95"),
+        )
+        .where(
+            TelemetryRecord.host_id == target_host_id,
+            TelemetryRecord.timestamp >= range_start,
+            TelemetryRecord.timestamp < range_end,
+        )
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+
+    rows = db.execute(stmt).all()
+    points = [
+        TelemetrySeriesPoint(
+            timestamp=row.bucket,
+            samples=int(row.samples),
+            avg=round(float(row.avg), 4),
+            min=round(float(row.min), 4),
+            max=round(float(row.max), 4),
+            p95=round(float(row.p95), 4),
+        )
+        for row in rows
+    ]
+
+    return TelemetrySeriesResponse(
+        host_id=target_host_id,
+        metric=metric,
+        start=range_start,
+        end=range_end,
+        bucket_seconds=bucket_seconds,
+        points=points,
+    )
 
 
 @router.get("/stats", response_model=TelemetryStats)

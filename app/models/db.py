@@ -78,7 +78,7 @@ class TelemetryRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     host_id: Mapped[str] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    sequence: Mapped[int] = mapped_column(Integer)
+    sequence: Mapped[int] = mapped_column(BigInteger)
     cpu: Mapped[float] = mapped_column(Float)
     memory: Mapped[float] = mapped_column(Float)
     temperature: Mapped[float] = mapped_column(Float)
