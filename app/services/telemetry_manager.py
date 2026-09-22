@@ -333,6 +333,8 @@ class TelemetryManager:
             platform_metrics.increment("alert_created_total")
             incident = self._incident_engine.on_alert_created(alert)
             alert.incident_id = incident.id
+            if self._alert_persistence is not None:
+                self._alert_persistence.enqueue(alert, alert.host_id)
             return alert
 
         existing = self._active_alerts.pop(key, None)
@@ -345,6 +347,8 @@ class TelemetryManager:
         existing.resolved_at = alert.resolved_at
         platform_metrics.increment("alert_resolved_total")
         self._incident_engine.on_alert_resolved(existing)
+        if self._alert_persistence is not None:
+            self._alert_persistence.enqueue(existing, existing.host_id)
         return existing
 
     def _process_anomaly_results(
