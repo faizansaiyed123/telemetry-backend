@@ -1,10 +1,11 @@
-"""Validation and persistence of agent telemetry batches."""
+"""Validation and idempotent persistence of agent telemetry batches."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import timezone
 
-from sqlalchemy import insert, update
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.db import Host, TelemetryRecord
@@ -14,7 +15,7 @@ from app.services.platform_metrics import platform_metrics
 
 
 class TelemetryIngestionService:
-    """Persist bounded batches and hand events to the runtime processor."""
+    """Validate, deduplicate, persist, and convert agent telemetry batches."""
 
     def persist_batch(
         self,
@@ -23,6 +24,15 @@ class TelemetryIngestionService:
         host: Host,
         payload: IngestTelemetryBatch,
     ) -> list[TelemetryEvent]:
+        existing_sequences = set(
+            db.scalars(
+                select(TelemetryRecord.sequence).where(
+                    TelemetryRecord.host_id == host.id,
+                    TelemetryRecord.sequence.in_([event.sequence for event in payload.events]),
+                )
+            )
+        )
+
         events = [
             TelemetryEvent(
                 timestamp=event.timestamp.astimezone(timezone.utc),
@@ -39,7 +49,11 @@ class TelemetryIngestionService:
                 agent_version=payload.agent_version,
             )
             for event in payload.events
+            if event.sequence not in existing_sequences
         ]
+
+        if not events:
+            return []
 
         rows = [
             {
@@ -56,16 +70,16 @@ class TelemetryIngestionService:
             }
             for event in events
         ]
-        db.execute(insert(TelemetryRecord), rows)
+        stmt = pg_insert(TelemetryRecord).values(rows).on_conflict_do_nothing(
+            constraint="uq_telemetry_host_sequence"
+        )
+        result = db.execute(stmt)
+
         host.last_seen_at = max(event.timestamp for event in events)
         if payload.agent_version:
             host.agent_version = payload.agent_version
-        db.execute(
-            update(Host)
-            .where(Host.id == host.id)
-            .values(last_seen_at=host.last_seen_at, agent_version=host.agent_version)
-        )
         db.commit()
-        platform_metrics.increment("telemetry_ingested_total", len(events))
+
+        accepted = result.rowcount if result.rowcount is not None else len(events)
         platform_metrics.increment("telemetry_ingestion_batches_total")
-        return events
+        return events[:accepted]
