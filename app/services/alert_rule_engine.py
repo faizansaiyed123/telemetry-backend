@@ -140,7 +140,7 @@ class AlertRuleEngine:
 
                     if state.active_alert_id is None and duration_met and cooldown_met:
                         alert = Alert(
-                            id=f"rule-{uuid4()}",
+                            id=uuid4().hex,
                             timestamp=timestamp,
                             metric=metric,
                             value=value,
