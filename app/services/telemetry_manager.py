@@ -391,7 +391,7 @@ class TelemetryManager:
                             f"{metric} anomaly detected: {result.value} "
                             f"(baseline: {result.baseline}, z-score: {result.z_score})"
                         ),
-                        host_id=event.host_id,
+                        host_id=event.host_id or self._persistence_host_id,
                         source="anomaly",
                     )
                     self._active_alerts[key] = alert
@@ -400,7 +400,10 @@ class TelemetryManager:
                     incident = self._incident_engine.on_alert_created(alert)
                     alert.incident_id = incident.id
                     if self._alert_persistence is not None:
-                        self._alert_persistence.enqueue(alert, event.host_id)
+                        self._alert_persistence.enqueue(
+                            alert,
+                            event.host_id or self._persistence_host_id,
+                        )
                     broadcasts.append(alert)
                 else:
                     self._active_alerts[key].value = result.value
@@ -412,7 +415,10 @@ class TelemetryManager:
                     platform_metrics.increment("alert_resolved_total")
                     self._incident_engine.on_alert_resolved(existing)
                     if self._alert_persistence is not None:
-                        self._alert_persistence.enqueue(existing, event.host_id)
+                        self._alert_persistence.enqueue(
+                            existing,
+                            existing.host_id or event.host_id or self._persistence_host_id,
+                        )
                     broadcasts.append(existing)
 
         return broadcasts
