@@ -85,7 +85,9 @@ class IngestTelemetryBatch(BaseModel):
 
 class IngestResponse(BaseModel):
     host_id: str
-    accepted: int
+    received: int = Field(ge=1)
+    accepted: int = Field(ge=0)
+    deduplicated: int = Field(ge=0)
     last_sequence: int
     source: str = "agent"
 
