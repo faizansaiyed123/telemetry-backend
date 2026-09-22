@@ -11,6 +11,7 @@ from app.api.dependencies import require_authenticated, require_operator
 from app.db.session import get_db
 from app.models.alerts import Alert, AlertsResponse
 from app.models.db import AlertRecord, User
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -45,27 +46,19 @@ def get_alerts(
     _: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> AlertsResponse:
-    """Return persisted alerts, newest first."""
+    """Return persisted and live alerts, newest first."""
     stmt = select(AlertRecord).order_by(AlertRecord.timestamp.desc()).limit(200)
     if active_only:
         stmt = stmt.where(AlertRecord.status == "active")
 
-    records = list(db.scalars(stmt))
-    persisted = [_to_alert(record) for record in records]
-    manager = request.app.state.telemetry_manager
-    live = manager.get_alerts(active_only=active_only)
+    persisted = [_to_alert(record) for record in db.scalars(stmt)]
+    live = request.app.state.telemetry_manager.get_alerts(active_only=active_only)
 
-    # Prefer live state for IDs that are still being updated asynchronously,
-    # then include persisted history not yet present in memory.
     by_id = {alert.id: alert for alert in persisted}
     for alert in live:
         by_id[alert.id] = alert
-    alerts = sorted(
-        by_id.values(),
-        key=lambda alert: alert.timestamp,
-        reverse=True,
-    )[:200]
 
+    alerts = sorted(by_id.values(), key=lambda alert: alert.timestamp, reverse=True)[:200]
     return AlertsResponse(
         alerts=alerts,
         active_count=sum(not alert.resolved for alert in alerts),
@@ -77,15 +70,24 @@ def get_alerts(
 async def acknowledge_alert(
     alert_id: str,
     request: Request,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator),
     db: Session = Depends(get_db),
 ) -> AlertActionResponse:
-    """Mark an alert as acknowledged."""
+    """Mark an alert as acknowledged and record the operator action."""
     manager = request.app.state.telemetry_manager
     record = db.get(AlertRecord, alert_id)
 
     if record is None:
         if await manager.acknowledge_alert(alert_id):
+            add_audit_log(
+                db,
+                request=request,
+                actor_user_id=current_user.id,
+                action="alert.acknowledged",
+                resource_type="alert",
+                resource_id=alert_id,
+            )
+            db.commit()
             return AlertActionResponse(status="acknowledged", alert_id=alert_id)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
 
@@ -93,6 +95,14 @@ async def acknowledge_alert(
         return AlertActionResponse(status="already_acknowledged", alert_id=alert_id)
 
     record.acknowledged = True
-    db.commit()
     await manager.acknowledge_alert(alert_id)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="alert.acknowledged",
+        resource_type="alert",
+        resource_id=alert_id,
+    )
+    db.commit()
     return AlertActionResponse(status="acknowledged", alert_id=alert_id)
