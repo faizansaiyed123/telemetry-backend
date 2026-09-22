@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.db.session import SessionLocal
 from app.models.db import Host, TelemetryRecord
 from app.models.telemetry import TelemetryEvent
+from app.services.platform_metrics import platform_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class TelemetryPersistence:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
             self.dropped_events += 1
+            platform_metrics.increment("telemetry_persistence_dropped_total")
             logger.warning(
                 "Telemetry persistence queue full; dropping event sequence=%s",
                 event.sequence,
@@ -146,3 +148,4 @@ class TelemetryPersistence:
                 )
             db.commit()
         self.persisted_events += inserted_count
+        platform_metrics.increment("telemetry_persisted_total", inserted_count)
