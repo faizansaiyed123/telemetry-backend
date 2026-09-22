@@ -36,8 +36,12 @@ def client(app):
 class TestWebSocket:
     @staticmethod
     def _ws(client):
-        """Open an authenticated telemetry WebSocket connection."""
-        return client.websocket_connect(f"/ws/telemetry?token={client.auth_token}")
+        """Open an authenticated telemetry WebSocket using a one-time token."""
+        token_response = client.post("/api/auth/ws-token")
+        assert token_response.status_code == 200, token_response.text
+        ws_token = token_response.json()["access_token"]
+        assert token_response.json()["expires_in"] == 60
+        return client.websocket_connect(f"/ws/telemetry?token={ws_token}")
 
     def test_websocket_connection(self, client):
         """WebSocket should connect successfully."""
