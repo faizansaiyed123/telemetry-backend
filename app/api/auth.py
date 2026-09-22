@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,6 +15,9 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.db import User
+from app.services.audit import add_audit_log, write_security_audit
+
+logger = logging.getLogger(__name__)
 from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -96,6 +100,16 @@ def login(
         action="auth.login",
         resource_type="user",
         resource_id=user.id,
+    )
+    db.commit()
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=user.id,
+        action="auth.login_succeeded",
+        resource_type="user",
+        resource_id=user.id,
+        details={"email": user.email},
     )
     db.commit()
     return {"access_token": create_access_token(user.id, user.role), "user": user}
