@@ -11,6 +11,7 @@ _COUNTER_NAMES = (
     "telemetry_ingested_total",
     "telemetry_ingestion_batches_total",
     "telemetry_ingestion_rejected_total",
+    "telemetry_ingestion_deduplicated_total",
     "telemetry_persisted_total",
     "telemetry_persistence_dropped_total",
     "alert_persistence_dropped_total",
