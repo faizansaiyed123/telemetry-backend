@@ -29,6 +29,9 @@ _COUNTER_NAMES = (
     "http_5xx_total",
     "http_request_duration_seconds_sum",
     "http_request_duration_seconds_count",
+    "telemetry_retention_runs_total",
+    "telemetry_retention_deleted_total",
+    "telemetry_retention_errors_total",
 )
 
 _GAUGE_NAMES = (
