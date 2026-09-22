@@ -153,6 +153,15 @@ def update_user(
     for key, value in values.items():
         setattr(user, key, value)
 
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="user.updated",
+        resource_type="user",
+        resource_id=user.id,
+        details={"fields": list(values)},
+    )
     db.commit()
     db.refresh(user)
     return user
