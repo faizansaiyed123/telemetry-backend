@@ -131,6 +131,8 @@ class IncidentPersistence:
                 existing.updated_at = datetime.now(timezone.utc)
 
             if event.alert_id is not None:
+                if db.get(AlertRecord, event.alert_id) is None:
+                    raise RuntimeError("alert persistence has not committed the referenced alert yet")
                 exists = db.scalar(
                     select(IncidentAlert).where(
                         IncidentAlert.incident_id == incident.id,
