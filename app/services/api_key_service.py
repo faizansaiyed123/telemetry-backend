@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.session import get_db
 from app.models.db import ApiKey, Host
+from app.utils.time import utc_now
 
 
 def hash_api_key(secret: str) -> str:
@@ -26,7 +27,10 @@ def authenticate_api_key(
     db: Session,
 ) -> ApiKey:
     if not x_telemetry_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Telemetry API key required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Telemetry API key required",
+        )
 
     key_hash = hash_api_key(x_telemetry_key)
     key = db.scalar(
@@ -36,19 +40,25 @@ def authenticate_api_key(
         )
     )
     if key is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid telemetry API key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid telemetry API key",
+        )
 
     host = db.get(Host, key.host_id)
     if host is None or not host.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Telemetry host is inactive")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Telemetry host is inactive",
+        )
 
-    key.last_used_at = datetime.now(timezone.utc)
+    key.last_used_at = utc_now()
     return key
 
 
 def telemetry_api_key(
     x_telemetry_key: str | None = Header(default=None, alias="X-Telemetry-Key"),
-) -> str:
-    if not x_telemetry_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Telemetry API key required")
-    return x_telemetry_key
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    """Authenticate an agent and return its host-scoped credential record."""
+    return authenticate_api_key(x_telemetry_key, db)
