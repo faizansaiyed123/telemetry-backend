@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.db import AlertRecord, IncidentAlert, TelemetryRecord
+from app.models.db import AlertRecord, TelemetryRecord
 
 
 METRIC_COLUMNS = {
@@ -30,46 +30,52 @@ def build_metric_findings(
     last_seen_at: datetime,
 ) -> list[str]:
     """Compare pre-incident and incident-window averages without claiming causality."""
+    if not alert_ids:
+        return []
+
     alert_metrics = set(
         db.scalars(
             select(AlertRecord.metric).where(AlertRecord.id.in_(alert_ids))
         )
-    ) if alert_ids else set()
+    )
+    selected = [(metric, METRIC_COLUMNS[metric]) for metric in sorted(alert_metrics) if metric in METRIC_COLUMNS]
+    if not selected:
+        return []
 
-    findings: list[tuple[float, str]] = []
     baseline_start = first_seen_at - timedelta(minutes=15)
     impact_end = max(last_seen_at, first_seen_at) + timedelta(minutes=1)
 
-    for metric in sorted(alert_metrics):
-        column = METRIC_COLUMNS.get(metric)
-        if column is None:
-            continue
+    def aggregate(start: datetime, end: datetime) -> dict[str, tuple[float | None, int]]:
+        columns = []
+        for metric, column in selected:
+            columns.append(func.avg(column).label(f"{metric}_avg"))
+            columns.append(func.count(column).label(f"{metric}_count"))
 
-        stmt = select(
-            func.avg(column).label("avg"),
-            func.count(TelemetryRecord.id).label("samples"),
+        stmt = select(*columns).where(
+            TelemetryRecord.timestamp >= start,
+            TelemetryRecord.timestamp < end,
         )
-
-        baseline_stmt = stmt.where(
-            TelemetryRecord.timestamp >= baseline_start,
-            TelemetryRecord.timestamp < first_seen_at,
-        )
-        impact_stmt = stmt.where(
-            TelemetryRecord.timestamp >= first_seen_at,
-            TelemetryRecord.timestamp < impact_end,
-        )
-
         if host_id is not None:
-            baseline_stmt = baseline_stmt.where(TelemetryRecord.host_id == host_id)
-            impact_stmt = impact_stmt.where(TelemetryRecord.host_id == host_id)
+            stmt = stmt.where(TelemetryRecord.host_id == host_id)
 
-        baseline_avg, baseline_samples = db.execute(baseline_stmt).one()
-        impact_avg, impact_samples = db.execute(impact_stmt).one()
+        row = db.execute(stmt).one()
+        values = {}
+        for index, (metric, _) in enumerate(selected):
+            values[metric] = (
+                float(row[index * 2]) if row[index * 2] is not None else None,
+                int(row[index * 2 + 1] or 0),
+            )
+        return values
 
-        baseline_count = int(baseline_samples or 0)
-        impact_count = int(impact_samples or 0)
+    baseline = aggregate(baseline_start, first_seen_at)
+    impact = aggregate(first_seen_at, impact_end)
 
-        if baseline_count == 0 or impact_count == 0:
+    findings: list[tuple[float, str]] = []
+    for metric, _ in selected:
+        before, baseline_count = baseline[metric]
+        during, impact_count = impact[metric]
+
+        if before is None or during is None or baseline_count == 0 or impact_count == 0:
             findings.append(
                 (
                     0.0,
@@ -79,8 +85,6 @@ def build_metric_findings(
             )
             continue
 
-        before = float(baseline_avg)
-        during = float(impact_avg)
         if before == 0:
             findings.append(
                 (
