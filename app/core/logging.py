@@ -6,6 +6,15 @@ import logging
 import sys
 
 from app.core.config import Settings
+from app.core.request_context import get_request_id
+
+
+class RequestIdFilter(logging.Filter):
+    """Attach the current request correlation ID to every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = get_request_id()
+        return True
 
 
 def setup_logging(settings: Settings) -> None:
@@ -15,20 +24,19 @@ def setup_logging(settings: Settings) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
-    # Remove existing handlers to avoid duplicates on reload
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(level)
+    handler.addFilter(RequestIdFilter())
     formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s | request_id=%(request_id)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
 
-    # Set uvicorn loggers to follow our level
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(name)
         logger.setLevel(level)
