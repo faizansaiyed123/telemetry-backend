@@ -10,6 +10,17 @@ from sqlalchemy.orm import Session
 from app.models.db import SLO, TelemetryRecord
 
 
+METRIC_COLUMNS = {
+    "cpu": TelemetryRecord.cpu,
+    "memory": TelemetryRecord.memory,
+    "temperature": TelemetryRecord.temperature,
+    "network_mbps": TelemetryRecord.network_mbps,
+    "requests_per_second": TelemetryRecord.requests_per_second,
+    "error_rate": TelemetryRecord.error_rate,
+    "latency_ms": TelemetryRecord.latency_ms,
+}
+
+
 class SLOService:
     """Evaluate service-level objectives with database-side aggregation."""
 
@@ -17,7 +28,9 @@ class SLOService:
         current = now or datetime.now(timezone.utc)
         window_start = current - timedelta(hours=slo.window_hours)
 
-        metric_column = getattr(TelemetryRecord, slo.metric)
+        metric_column = METRIC_COLUMNS.get(slo.metric)
+        if metric_column is None:
+            raise ValueError(f"Unsupported SLO metric: {slo.metric}")
 
         if slo.operator == ">":
             is_good = metric_column > slo.threshold
@@ -25,8 +38,10 @@ class SLOService:
             is_good = metric_column >= slo.threshold
         elif slo.operator == "<":
             is_good = metric_column < slo.threshold
-        else:
+        elif slo.operator == "<=":
             is_good = metric_column <= slo.threshold
+        else:
+            raise ValueError(f"Unsupported SLO operator: {slo.operator}")
 
         stmt = (
             select(
