@@ -23,7 +23,6 @@ def upgrade() -> None:
     op.add_column("telemetry_records", sa.Column("received_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
     op.create_index("ix_telemetry_records_source", "telemetry_records", ["source"])
     op.create_index("ix_telemetry_records_received_at", "telemetry_records", ["received_at"])
-    op.create_unique_constraint("uq_telemetry_host_sequence", "telemetry_records", ["host_id", "sequence"])
     op.create_index("ix_telemetry_host_timestamp", "telemetry_records", ["host_id", "timestamp"])
 
     op.create_table(
@@ -127,7 +126,6 @@ def downgrade() -> None:
     op.drop_index("ix_api_keys_host_id", table_name="api_keys")
     op.drop_table("api_keys")
     op.drop_index("ix_telemetry_host_timestamp", table_name="telemetry_records")
-    op.drop_constraint("uq_telemetry_host_sequence", "telemetry_records", type_="unique")
     op.drop_index("ix_telemetry_records_received_at", table_name="telemetry_records")
     op.drop_index("ix_telemetry_records_source", table_name="telemetry_records")
     op.drop_column("telemetry_records", "received_at")
