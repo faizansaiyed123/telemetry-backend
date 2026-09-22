@@ -92,10 +92,10 @@ def create_user(
         db,
         request=request,
         actor_user_id=current_user.id,
-        action="user.updated",
+        action="user.created",
         resource_type="user",
         resource_id=user.id,
-        details={"fields": list(values)},
+        details={"fields": ["email", "role"]},
     )
     db.commit()
     db.refresh(user)
