@@ -130,7 +130,8 @@ class TelemetryPersistence:
                 .values(rows)
                 .on_conflict_do_nothing(constraint="uq_telemetry_host_sequence")
             )
-            inserted_count = max(result.rowcount or 0, 0)
+            rowcount = result.rowcount
+            inserted_count = rowcount if isinstance(rowcount, int) and rowcount >= 0 else len(rows)
             host_updates: dict[str, object] = {}
             for event in events:
                 host_id = event.host_id or self.host_id
