@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.db import User
+from app.services.audit import add_audit_log
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -76,7 +77,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
     user = db.scalar(select(User).where(User.email == form_data.username.lower()))
     if user is None or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
@@ -84,11 +89,24 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=user.id,
+        action="auth.login",
+        resource_type="user",
+        resource_id=user.id,
+    )
+    db.commit()
     return {"access_token": create_access_token(user.id, user.role), "user": user}
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def signup(payload: SignupRequest, db: Session = Depends(get_db)):
+def signup(
+    payload: SignupRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     email = payload.email.strip().lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(
@@ -113,6 +131,15 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         ) from exc
 
     db.refresh(user)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=user.id,
+        action="auth.signup",
+        resource_type="user",
+        resource_id=user.id,
+    )
+    db.commit()
     return {"access_token": create_access_token(user.id, user.role), "user": user}
 
 
@@ -124,6 +151,7 @@ def me(current_user: User = Depends(get_current_user)):
 @router.post("/change-password", response_model=ChangePasswordResponse)
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChangePasswordResponse:
@@ -139,5 +167,13 @@ def change_password(
         )
 
     current_user.password_hash = hash_password(payload.new_password)
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="auth.password_changed",
+        resource_type="user",
+        resource_id=current_user.id,
+    )
     db.commit()
     return ChangePasswordResponse(status="password_changed")
