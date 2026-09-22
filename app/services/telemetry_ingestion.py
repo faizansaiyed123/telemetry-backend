@@ -24,11 +24,12 @@ class TelemetryIngestionService:
         host: Host,
         payload: IngestTelemetryBatch,
     ) -> list[TelemetryEvent]:
+        sequences = [event.sequence for event in payload.events]
         existing_sequences = set(
             db.scalars(
                 select(TelemetryRecord.sequence).where(
                     TelemetryRecord.host_id == host.id,
-                    TelemetryRecord.sequence.in_([event.sequence for event in payload.events]),
+                    TelemetryRecord.sequence.in_(sequences),
                 )
             )
         )
@@ -70,10 +71,11 @@ class TelemetryIngestionService:
             }
             for event in events
         ]
-        stmt = pg_insert(TelemetryRecord).values(rows).on_conflict_do_nothing(
-            constraint="uq_telemetry_host_sequence"
+        result = db.execute(
+            pg_insert(TelemetryRecord)
+            .values(rows)
+            .on_conflict_do_nothing(constraint="uq_telemetry_host_sequence")
         )
-        result = db.execute(stmt)
 
         host.last_seen_at = max(event.timestamp for event in events)
         if payload.agent_version:
