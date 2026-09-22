@@ -45,6 +45,7 @@ async def create_alert_rule(
         created_by=current_user.id,
     )
     db.add(rule)
+    db.flush()
     add_audit_log(
         db,
         request=request,
