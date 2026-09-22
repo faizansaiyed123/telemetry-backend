@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.db import AlertRecord, ChangeEvent, User
 from app.models.observability import IncidentEvidenceResponse, IncidentResponse, IncidentTimelineItem
 from app.services.audit import add_audit_log
+from app.services.incident_evidence import build_metric_findings
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -134,6 +135,14 @@ def get_incident_evidence(
     else:
         findings.append("No recorded change event was found in the ±30 minute correlation window.")
 
+    metric_findings = build_metric_findings(
+        db,
+        alert_ids=set(incident.alert_ids),
+        host_id=incident.host_id,
+        first_seen_at=incident.first_seen_at,
+        last_seen_at=incident.last_seen_at,
+    )
+
     return IncidentEvidenceResponse(
         incident=_response(incident),
         timeline=timeline,
@@ -142,6 +151,7 @@ def get_incident_evidence(
         change_count=len(change_rows),
         correlation_window_minutes=30,
         findings=findings,
+        metric_findings=metric_findings,
     )
 
 
