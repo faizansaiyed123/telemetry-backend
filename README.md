@@ -220,6 +220,7 @@ The backend protects the last active administrator and prevents an administrator
 | GET | /api/telemetry/current | Authenticated | Current event |
 | GET | /api/telemetry/history | Authenticated | Time/host bounded history |
 | GET | /api/telemetry/stats | Authenticated | Database-side aggregate statistics |
+| GET | /api/telemetry/series | Authenticated | Bounded time-series buckets with p95 |
 | POST | /api/ingest/v1/telemetry | Agent key | Host telemetry ingestion |
 | WS | /ws/telemetry?token=<one-time-token> | Authenticated | Live telemetry/alerts/system events |
 
@@ -270,6 +271,45 @@ curl -X POST "$TELEMETRY_API_URL/api/changes" \\
 | POST | /api/api-keys/{key_id}/revoke | Admin |
 
 The plaintext secret is returned only at creation time. PostgreSQL stores only a SHA-256 digest and a short display prefix.
+
+### Webhook notifications
+
+Administrators can configure zero-cost outbound HTTP webhook channels for automation and incident response.
+
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | /api/notification-channels | Admin |
+| POST | /api/notification-channels | Admin |
+| PATCH | /api/notification-channels/{channel_id} | Admin |
+| DELETE | /api/notification-channels/{channel_id} | Admin |
+| POST | /api/notification-channels/{channel_id}/test | Admin |
+| GET | /api/notification-channels/deliveries | Admin |
+| POST | /api/notification-channels/deliveries/{delivery_id}/retry | Admin |
+
+Supported events are `alert.created`, `alert.resolved`, `incident.created`, and `incident.resolved`. Channels can filter by event type and minimum severity.
+
+Each delivery uses a unique delivery ID, persists its serialized payload and original destination, and records attempt count/status for operational visibility. Transient network errors, 408/425/429 responses, and 5xx responses use bounded exponential retry. Failed deliveries can be manually requeued without regenerating the event.
+
+Webhook requests include:
+
+- `X-Telemetry-Event`
+- `X-Telemetry-Delivery`
+- `X-Telemetry-Timestamp`
+- `X-Telemetry-Signature`
+
+The signature is HMAC-SHA256 over `timestamp + "." + canonical_json_payload`. Receivers should reject stale timestamps and verify the signature with the shared webhook secret before processing a delivery. The signing pattern follows established HMAC webhook verification practice. citeturn595150search0
+
+Production deployments require HTTPS webhook targets and reject obvious local/metadata destinations to reduce SSRF risk. More restrictive outbound allowlisting can be applied at the network layer when the deployment permits it. OWASP specifically identifies custom webhook URLs as a potential SSRF surface and recommends allowlist-style controls where possible. citeturn595150search2
+
+Set:
+
+```env
+WEBHOOK_NOTIFICATIONS_ENABLED=true
+WEBHOOK_SIGNING_SECRET=<at-least-32-character-random-secret>
+WEBHOOK_TIMEOUT_SECONDS=5
+WEBHOOK_MAX_ATTEMPTS=3
+WEBHOOK_QUEUE_SIZE=2000
+```
 
 ### SLOs
 
@@ -516,6 +556,12 @@ The current migration chain is:
 0004_slos
         ↓
 0005_telemetry_query_index
+        ↓
+0006_telemetry_storage_hardening
+        ↓
+0007_change_events
+        ↓
+0008_webhook_notifications
 ```
 
 ## Testing strategy
