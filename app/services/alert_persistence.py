@@ -107,7 +107,6 @@ class AlertPersistence:
                         host_id=item.host_id,
                         service_id=alert.service_id,
                         metric=alert.metric,
-                        service_id=alert.service_id,
                         value=alert.value,
                         baseline=alert.baseline,
                         severity=alert.severity.value,
@@ -125,6 +124,7 @@ class AlertPersistence:
                     update(AlertRecord)
                     .where(AlertRecord.id == alert.id)
                     .values(
+                        service_id=alert.service_id,
                         value=alert.value,
                         baseline=alert.baseline,
                         severity=alert.severity.value,
