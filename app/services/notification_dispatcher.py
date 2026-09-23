@@ -158,7 +158,7 @@ class NotificationDispatcher:
             "version": 1,
             "event_type": event_type,
             "event_id": getattr(incident, "id"),
-            "occurred_at": getattr(incident, "first_seen_at").isoformat(),
+            "occurred_at": (getattr(incident, "resolved_at", None) or getattr(incident, "last_seen_at")).isoformat(),
             "source": "telemetry-platform",
             "data": {
                 "id": getattr(incident, "id"),
@@ -269,6 +269,40 @@ class NotificationDispatcher:
         except Exception:
             logger.exception("Unable to restore pending webhook notifications")
 
+    def retry_delivery(self, delivery_id: str) -> bool:
+        """Requeue a failed persisted delivery using its original immutable payload."""
+        if not self._enabled:
+            return False
+
+        with SessionLocal() as db:
+            row = db.get(NotificationDelivery, delivery_id)
+            if row is None or row.status != "failed":
+                return False
+            channel = self._channels.get(row.channel_id)
+            if channel is None:
+                return False
+            try:
+                payload = json.loads(row.payload)
+            except json.JSONDecodeError:
+                return False
+
+            row.status = "pending"
+            row.last_error = None
+            row.last_status_code = None
+            db.commit()
+
+        self._queue_job(
+            NotificationJob(
+                delivery_id=row.id,
+                channel_id=row.channel_id,
+                url=row.target_url,
+                event_type=row.event_type,
+                event_id=row.event_id,
+                payload=payload,
+            )
+        )
+        return True
+
     async def _worker(self) -> None:
         while True:
             if self._stopping and self._queue.empty():
@@ -296,6 +330,7 @@ class NotificationDispatcher:
 
         last_error: str | None = None
         last_status: int | None = None
+        delivery_timestamp = str(int(datetime.now(timezone.utc).timestamp()))
         for attempt in range(1, self._max_attempts + 1):
             self._set_delivery_state(
                 job.delivery_id,
@@ -310,10 +345,12 @@ class NotificationDispatcher:
                 "X-Telemetry-Event": job.event_type,
                 "X-Telemetry-Delivery": job.delivery_id,
             }
+            headers["X-Telemetry-Timestamp"] = delivery_timestamp
             if self._signing_secret:
+                signed_message = f"{delivery_timestamp}.{body}".encode("utf-8")
                 signature = hmac.new(
                     self._signing_secret.encode("utf-8"),
-                    body.encode("utf-8"),
+                    signed_message,
                     hashlib.sha256,
                 ).hexdigest()
                 headers["X-Telemetry-Signature"] = f"sha256={signature}"
@@ -424,6 +461,11 @@ class NotificationDispatcher:
         settings = get_settings()
         if settings.app_env.strip().lower() == "production" and parsed.scheme != "https":
             raise ValueError("Webhook URLs must use HTTPS in production")
+
+        hostname = parsed.hostname.lower().rstrip(".")
+        if hostname in {"localhost", "localhost.localdomain", "metadata.google.internal"} or hostname.endswith(".localhost") or hostname.endswith(".local"):
+            if settings.app_env.strip().lower() == "production":
+                raise ValueError("Local or metadata webhook destinations are not allowed in production")
 
         if parsed.hostname:
             try:
