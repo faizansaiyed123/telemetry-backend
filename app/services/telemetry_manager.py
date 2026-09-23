@@ -299,8 +299,8 @@ class TelemetryManager:
         name: str,
         service_id: str | None,
         run,
-        previous_failures: int,
         failure_threshold: int,
+        expected_status: int,
     ) -> None:
         """Convert repeated synthetic failures into incident-backed alerts."""
         key = f"synthetic:{check_id}"
@@ -332,7 +332,7 @@ class TelemetryManager:
                         timestamp=run.checked_at,
                         metric=f"synthetic:{check_id}",
                         value=float(run.status_code or 0),
-                        baseline=200.0,
+                        baseline=float(expected_status),
                         severity="CRITICAL",
                         message=(
                             f"{name} failed {run.consecutive_failures} consecutive checks: "
