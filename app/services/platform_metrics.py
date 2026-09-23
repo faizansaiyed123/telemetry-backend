@@ -32,6 +32,14 @@ _COUNTER_NAMES = (
     "telemetry_retention_runs_total",
     "telemetry_retention_deleted_total",
     "telemetry_retention_errors_total",
+    "event_bus_published_total",
+    "event_bus_received_total",
+    "event_bus_dropped_total",
+    "event_bus_connection_errors_total",
+    "event_bus_publish_errors_total",
+    "event_bus_listener_errors_total",
+    "event_bus_invalid_messages_total",
+    "event_bus_callback_errors_total",
 )
 
 _GAUGE_NAMES = (
@@ -40,6 +48,8 @@ _GAUGE_NAMES = (
     "alert_persistence_queue_depth",
     "incident_persistence_queue_depth",
     "open_incidents",
+    "event_bus_queue_depth",
+    "event_bus_connected",
 )
 
 
