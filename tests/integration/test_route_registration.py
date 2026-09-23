@@ -55,6 +55,12 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/slos"),
     ("PATCH", "/api/slos/{slo_id}"),
     ("DELETE", "/api/slos/{slo_id}"),
+    ("GET", "/api/notification-channels"),
+    ("POST", "/api/notification-channels"),
+    ("PATCH", "/api/notification-channels/{channel_id}"),
+    ("DELETE", "/api/notification-channels/{channel_id}"),
+    ("POST", "/api/notification-channels/{channel_id}/test"),
+    ("GET", "/api/notification-channels/deliveries"),
 }
 
 
