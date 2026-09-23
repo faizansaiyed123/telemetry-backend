@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0008_synthetic_monitoring_topology"
-down_revision = "0006_telemetry_storage_hardening"
+down_revision = "0007_change_events"
 branch_labels = None
 depends_on = None
 
