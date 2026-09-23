@@ -260,7 +260,7 @@ class NotificationDispatcher:
                     NotificationJob(
                         delivery_id=row.id,
                         channel_id=row.channel_id,
-                        url=channel.url,
+                        url=row.target_url,
                         event_type=row.event_type,
                         event_id=row.event_id,
                         payload=payload,
@@ -380,6 +380,7 @@ class NotificationDispatcher:
                         attempts=0,
                         payload_sha256=payload_hash,
                         payload=body,
+                        target_url=job.url,
                     )
                 )
                 db.commit()
