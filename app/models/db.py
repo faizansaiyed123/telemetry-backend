@@ -214,6 +214,7 @@ class NotificationDelivery(Base):
     channel_id: Mapped[str] = mapped_column(
         ForeignKey("notification_channels.id", ondelete="CASCADE"), index=True
     )
+    target_url: Mapped[str] = mapped_column(String(2048))
     event_type: Mapped[str] = mapped_column(String(64))
     event_id: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
