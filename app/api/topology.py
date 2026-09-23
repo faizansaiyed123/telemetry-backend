@@ -27,6 +27,35 @@ from app.services.audit import add_audit_log
 router = APIRouter(prefix="/api/services", tags=["services"])
 
 
+
+def _would_create_cycle(
+    db: Session,
+    *,
+    source_service_id: str,
+    target_service_id: str,
+) -> bool:
+    """Return True when adding source -> target would make a dependency cycle."""
+    adjacency: dict[str, set[str]] = {}
+    for source_id, target_id in db.execute(
+        select(ServiceDependency.source_service_id, ServiceDependency.target_service_id)
+    ):
+        adjacency.setdefault(source_id, set()).add(target_id)
+
+    adjacency.setdefault(source_service_id, set()).add(target_service_id)
+
+    stack = [target_service_id]
+    visited: set[str] = set()
+    while stack:
+        current = stack.pop()
+        if current == source_service_id:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        stack.extend(adjacency.get(current, ()))
+    return False
+
+
 def _service_response(service: Service) -> ServiceResponse:
     return ServiceResponse.model_validate(service)
 
@@ -157,6 +186,13 @@ def add_dependency(
     )
     if existing is not None:
         raise HTTPException(status_code=409, detail="Dependency already exists")
+
+    if _would_create_cycle(
+        db,
+        source_service_id=service_id,
+        target_service_id=payload.target_service_id,
+    ):
+        raise HTTPException(status_code=422, detail="Dependency would create a cycle")
 
     dependency = ServiceDependency(
         source_service_id=service_id,
