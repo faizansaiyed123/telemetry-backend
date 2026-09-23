@@ -92,7 +92,8 @@ class PostgresEventBus:
         self._publisher.start()
         self._listener.start()
         platform_metrics.set_gauge("event_bus_queue_depth", 0)
-        platform_metrics.set_gauge("event_bus_connected", 0)
+        platform_metrics.set_gauge("event_bus_publisher_connected", 0)
+        platform_metrics.set_gauge("event_bus_listener_connected", 0)
         logger.info("PostgreSQL event fan-out enabled on channel=%s", self.channel)
 
     async def stop(self) -> None:
@@ -107,7 +108,8 @@ class PostgresEventBus:
         await asyncio.to_thread(self._join_threads, publisher, listener)
         self._loop = None
         platform_metrics.set_gauge("event_bus_queue_depth", 0)
-        platform_metrics.set_gauge("event_bus_connected", 0)
+        platform_metrics.set_gauge("event_bus_publisher_connected", 0)
+        platform_metrics.set_gauge("event_bus_listener_connected", 0)
 
     def publish(self, message: str) -> bool:
         """Enqueue a local broadcast for peer processes without blocking."""
@@ -141,10 +143,10 @@ class PostgresEventBus:
                 if connection is None:
                     try:
                         connection = psycopg.connect(self.database_url, autocommit=True)
-                        platform_metrics.set_gauge("event_bus_connected", 1)
+                        platform_metrics.set_gauge("event_bus_publisher_connected", 1)
                         backoff = 0.5
                     except Exception:
-                        platform_metrics.set_gauge("event_bus_connected", 0)
+                        platform_metrics.set_gauge("event_bus_publisher_connected", 0)
                         platform_metrics.increment("event_bus_connection_errors_total")
                         self._stop.wait(backoff)
                         backoff = min(backoff * 2, 8.0)
@@ -176,7 +178,7 @@ class PostgresEventBus:
                 finally:
                     platform_metrics.set_gauge("event_bus_queue_depth", self._queue.qsize())
         finally:
-            platform_metrics.set_gauge("event_bus_connected", 0)
+            platform_metrics.set_gauge("event_bus_publisher_connected", 0)
             if connection is not None:
                 try:
                     connection.close()
@@ -192,10 +194,10 @@ class PostgresEventBus:
                     try:
                         connection = psycopg.connect(self.database_url, autocommit=True)
                         connection.execute(f"LISTEN {self.channel}")
-                        platform_metrics.set_gauge("event_bus_connected", 1)
+                        platform_metrics.set_gauge("event_bus_listener_connected", 1)
                         backoff = 0.5
                     except Exception:
-                        platform_metrics.set_gauge("event_bus_connected", 0)
+                        platform_metrics.set_gauge("event_bus_listener_connected", 0)
                         platform_metrics.increment("event_bus_connection_errors_total")
                         self._stop.wait(backoff)
                         backoff = min(backoff * 2, 8.0)
@@ -215,7 +217,7 @@ class PostgresEventBus:
                         pass
                     connection = None
         finally:
-            platform_metrics.set_gauge("event_bus_connected", 0)
+            platform_metrics.set_gauge("event_bus_listener_connected", 0)
             if connection is not None:
                 try:
                     connection.close()
