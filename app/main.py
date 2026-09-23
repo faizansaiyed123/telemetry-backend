@@ -23,6 +23,8 @@ from app.api.incidents import router as incidents_router
 from app.api.ingestion import router as ingestion_router
 from app.api.observability import router as observability_router
 from app.api.simulation import router as simulation_router
+from app.api.synthetic_checks import router as synthetic_checks_router
+from app.api.topology import router as services_router, topology_router
 from app.api.slos import router as slos_router
 from app.api.telemetry import router as telemetry_router
 from app.api.users import router as users_router
@@ -33,6 +35,7 @@ from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitExceeded, rate_limiter
 from app.core.request_context import reset_request_id, set_request_id
 from app.services.platform_metrics import platform_metrics
+from app.services.synthetic_monitor import SyntheticMonitor
 from app.services.telemetry_manager import TelemetryManager
 from app.services.telemetry_retention import TelemetryRetentionService
 
@@ -200,6 +203,9 @@ def create_app() -> FastAPI:
     app.include_router(telemetry_router)
     app.include_router(alerts_router)
     app.include_router(simulation_router)
+    app.include_router(synthetic_checks_router)
+    app.include_router(services_router)
+    app.include_router(topology_router)
     app.include_router(slos_router)
     app.include_router(websocket_router)
     app.include_router(api_keys_router)
