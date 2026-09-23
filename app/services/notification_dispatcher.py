@@ -335,9 +335,9 @@ class NotificationDispatcher:
     async def _deliver(self, job: NotificationJob) -> None:
         if self._client is None:
             return
-        body = json.dumps(job.payload, separators=(",", ":"), sort_keys=True)
-        payload_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        delivery_id = self._ensure_delivery_row(job, body, payload_hash)
+        initial_body = json.dumps(job.payload, separators=(",", ":"), sort_keys=True)
+        payload_hash = hashlib.sha256(initial_body.encode("utf-8")).hexdigest()
+        delivery_id = self._ensure_delivery_row(job, initial_body, payload_hash)
         if delivery_id is None:
             logger.error("Unable to establish durable webhook delivery id=%s", job.delivery_id)
             return
@@ -349,6 +349,9 @@ class NotificationDispatcher:
                 return
             if stored.status == "delivered":
                 return
+            body = stored.payload
+            target_url = stored.target_url
+            event_type = stored.event_type
             previous_attempts = stored.attempts
 
         last_error: str | None = None
@@ -357,7 +360,7 @@ class NotificationDispatcher:
         for attempt in range(1, self._max_attempts + 1):
             total_attempts = previous_attempts + attempt
             self._set_delivery_state(
-                job.delivery_id,
+                delivery_id,
                 status="delivering",
                 attempts=total_attempts,
                 last_status_code=last_status,
@@ -366,7 +369,7 @@ class NotificationDispatcher:
             headers = {
                 "Content-Type": "application/json",
                 "User-Agent": "TelemetryPlatform-Webhook/1.0",
-                "X-Telemetry-Event": job.event_type,
+                "X-Telemetry-Event": event_type,
                 "X-Telemetry-Delivery": delivery_id,
             }
             headers["X-Telemetry-Timestamp"] = delivery_timestamp
@@ -380,7 +383,7 @@ class NotificationDispatcher:
                 headers["X-Telemetry-Signature"] = f"sha256={signature}"
 
             try:
-                response = await self._client.post(job.url, content=body, headers=headers)
+                response = await self._client.post(target_url, content=body, headers=headers)
                 last_status = response.status_code
                 if 200 <= response.status_code < 300:
                     self._set_delivery_state(
@@ -415,9 +418,9 @@ class NotificationDispatcher:
                 platform_metrics.increment("notification_failed_total")
                 logger.warning(
                     "Webhook delivery failed id=%s event=%s attempts=%d status=%s",
-                    job.delivery_id,
-                    job.event_type,
-                    attempt,
+                    delivery_id,
+                    event_type,
+                    total_attempts,
                     last_status,
                 )
                 return
