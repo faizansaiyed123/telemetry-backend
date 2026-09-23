@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0009_service_scoped_incidents"
-down_revision = "0007_synthetic_monitoring_topology"
+down_revision = "0008_synthetic_monitoring_topology"
 branch_labels = None
 depends_on = None
 
