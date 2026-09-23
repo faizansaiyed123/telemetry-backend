@@ -185,6 +185,8 @@ def test_channel(
         delivery_id = notification_dispatcher.enqueue_test(channel_id)
     except KeyError as exc:
         raise HTTPException(status_code=409, detail="Notification channel is not available to the dispatcher") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     add_audit_log(
         db,
