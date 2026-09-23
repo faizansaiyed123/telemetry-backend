@@ -199,6 +199,31 @@ def test_channel(
     return NotificationTestResponse(delivery_id=delivery_id, status="queued")
 
 
+@router.post("/deliveries/{delivery_id}/retry", response_model=NotificationTestResponse, status_code=status.HTTP_202_ACCEPTED)
+def retry_delivery(
+    delivery_id: str,
+    request: Request,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> NotificationTestResponse:
+    if not notification_dispatcher.retry_delivery(delivery_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Delivery is not failed, does not exist, or its channel is unavailable",
+        )
+
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="notification_delivery.retried",
+        resource_type="notification_delivery",
+        resource_id=delivery_id,
+    )
+    db.commit()
+    return NotificationTestResponse(delivery_id=delivery_id, status="queued")
+
+
 @router.get("/deliveries", response_model=list[NotificationDeliveryResponse])
 def list_deliveries(
     channel_id: str | None = Query(default=None),
