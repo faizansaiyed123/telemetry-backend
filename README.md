@@ -15,7 +15,8 @@ This is intentionally more than a dashboard API. The backend demonstrates severa
 - **Incident correlation:** related alerts are grouped into incidents and persisted asynchronously.
 - **SLOs:** database-side aggregation calculates sample-based SLI and remaining error budget.
 - **Self-observability:** runtime health, throughput, queue depth, drops, request RED metrics, and Prometheus-compatible output.
-- **Security controls:** JWT + active-user checks, Argon2 password hashing, API-key hashing, role-based authorization, audit logs, and rate limiting.
+- **Automation:** signed outbound webhook notifications, persistent delivery history, bounded retries, and manual replay of failed deliveries.
+- **Security controls:** JWT + active-user checks, Argon2 password hashing, API-key hashing, role-based authorization, audit logs, rate limiting, and hardened webhook targets.
 - **Explicit scaling boundary:** the current deployment is single-process; process-local state is not disguised as distributed state.
 
 ## Architecture
@@ -297,9 +298,9 @@ Webhook requests include:
 - `X-Telemetry-Timestamp`
 - `X-Telemetry-Signature`
 
-The signature is HMAC-SHA256 over `timestamp + "." + canonical_json_payload`. Receivers should reject stale timestamps and verify the signature with the shared webhook secret before processing a delivery. The signing pattern follows established HMAC webhook verification practice. citeturn595150search0
+The signature is HMAC-SHA256 over `timestamp + "." + canonical_json_payload`. Receivers should reject stale timestamps and verify the signature with the shared webhook secret before processing a delivery. This follows the common HMAC webhook verification pattern documented by GitHub.
 
-Production deployments require HTTPS webhook targets and reject obvious local/metadata destinations to reduce SSRF risk. More restrictive outbound allowlisting can be applied at the network layer when the deployment permits it. OWASP specifically identifies custom webhook URLs as a potential SSRF surface and recommends allowlist-style controls where possible. citeturn595150search2
+Production deployments require HTTPS webhook targets and reject obvious local/metadata destinations to reduce SSRF risk. More restrictive outbound allowlisting can be applied at the network layer when the deployment permits it. Custom webhook URLs are an SSRF-sensitive feature, so deployments should prefer allowlisted destinations when they can.
 
 Set:
 
