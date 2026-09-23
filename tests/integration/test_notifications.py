@@ -422,3 +422,58 @@ async def test_failed_delivery_can_be_requeued(client: AsyncClient) -> None:
         db.delete(row)
         db.delete(db.get(NotificationChannel, channel_id))
         db.commit()
+
+
+def test_notification_filters_by_event_and_minimum_severity() -> None:
+    dispatcher = NotificationDispatcher()
+    channel_id = str(uuid4())
+    dispatcher._channels = {
+        channel_id: WebhookChannel(
+            id=channel_id,
+            name="critical-only",
+            url="https://collector.example.net/critical",
+            event_types=frozenset({"alert.created"}),
+            min_severity="CRITICAL",
+            enabled=True,
+        )
+    }
+
+    warning_alert = Alert(
+        id=str(uuid4()),
+        timestamp=datetime.now(timezone.utc),
+        metric="cpu",
+        value=90,
+        baseline=20,
+        severity=Severity.WARNING,
+        message="cpu warning",
+    )
+    dispatcher.enqueue_alert(warning_alert, "created")
+    assert dispatcher.queue_depth == 0
+
+    critical_alert = warning_alert.model_copy(
+        update={"id": str(uuid4()), "severity": Severity.CRITICAL}
+    )
+    dispatcher.enqueue_alert(critical_alert, "created")
+    assert dispatcher.queue_depth == 1
+
+    dispatcher._queue.get_nowait()
+
+
+def test_production_webhook_destination_rejects_obvious_internal_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.notification_dispatcher as dispatcher_module
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        dispatcher_module,
+        "get_settings",
+        lambda: SimpleNamespace(app_env="production"),
+    )
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        NotificationDispatcher.validate_url("http://example.com/hook")
+
+    with pytest.raises(ValueError, match="Local or metadata"):
+        NotificationDispatcher.validate_url("https://localhost/hook")
+
+    with pytest.raises(ValueError, match="Private or loopback"):
+        NotificationDispatcher.validate_url("https://127.0.0.1/hook")
