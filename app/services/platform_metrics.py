@@ -20,6 +20,9 @@ _COUNTER_NAMES = (
     "incident_created_total",
     "incident_resolved_total",
     "incident_persistence_dropped_total",
+    "synthetic_checks_total",
+    "synthetic_check_success_total",
+    "synthetic_check_failure_total",
     "audit_events_total",
     "auth_rate_limited_total",
     "ingestion_rate_limited_total",
@@ -40,6 +43,7 @@ _GAUGE_NAMES = (
     "alert_persistence_queue_depth",
     "incident_persistence_queue_depth",
     "open_incidents",
+    "synthetic_active_checks",
 )
 
 

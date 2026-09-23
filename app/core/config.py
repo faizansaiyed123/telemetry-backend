@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     telemetry_retention_cleanup_interval_seconds: int = 3600
     telemetry_retention_batch_size: int = 1000
     telemetry_retention_max_batches_per_run: int = 20
+    synthetic_allow_private_targets: bool = False
+    synthetic_failure_threshold: int = 3
 
     anomaly_z_threshold: float = 3.0
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
