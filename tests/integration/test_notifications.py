@@ -49,6 +49,7 @@ async def client():
             )
             assert login.status_code == 200, login.text
             ac.headers.update({"Authorization": f"Bearer {login.json()['access_token']}"})
+            await ac.post("/api/simulation/pause")
             yield ac
 
 
@@ -285,3 +286,74 @@ async def test_pending_delivery_restores_using_original_target_url() -> None:
         assert row is not None
         db.delete(row)
         db.commit()
+
+
+@pytest.mark.asyncio
+async def test_telemetry_manager_emits_alert_and_incident_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.models.telemetry import TelemetryEvent
+    from app.services.anomaly_detector import AnomalyResult
+    from app.services.telemetry_manager import TelemetryManager
+
+    emitted: list[tuple[str, str, str]] = []
+    import app.services.telemetry_manager as manager_module
+
+    monkeypatch.setattr(
+        manager_module.notification_dispatcher,
+        "enqueue_alert",
+        lambda alert, action: emitted.append(("alert", action, alert.id)),
+    )
+    monkeypatch.setattr(
+        manager_module.notification_dispatcher,
+        "enqueue_incident",
+        lambda incident, action: emitted.append(("incident", action, incident.id)),
+    )
+
+    manager = TelemetryManager()
+    event = TelemetryEvent(
+        timestamp=datetime.now(timezone.utc),
+        sequence=1,
+        cpu=95,
+        memory=40,
+        temperature=50,
+        network_mbps=100,
+        requests_per_second=100,
+        error_rate=1,
+        latency_ms=300,
+        host_id="host-test",
+        source="agent",
+    )
+
+    created = manager._process_anomaly_results(
+        [
+            AnomalyResult(
+                metric="cpu",
+                value=95,
+                baseline=20,
+                z_score=4.2,
+                is_anomaly=True,
+                severity=Severity.CRITICAL,
+            )
+        ],
+        event,
+    )
+    assert len(created) == 1
+    assert ("alert", "created", created[0].id) in emitted
+    assert any(kind == "incident" and action == "created" for kind, action, _ in emitted)
+
+    manager._process_anomaly_results(
+        [
+            AnomalyResult(
+                metric="cpu",
+                value=20,
+                baseline=20,
+                z_score=0,
+                is_anomaly=False,
+                severity=Severity.INFO,
+            )
+        ],
+        event.model_copy(
+            update={"sequence": 2, "timestamp": datetime.now(timezone.utc)}
+        ),
+    )
+    assert any(kind == "alert" and action == "resolved" for kind, action, _ in emitted)
+    assert any(kind == "incident" and action == "resolved" for kind, action, _ in emitted)
