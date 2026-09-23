@@ -219,11 +219,12 @@ class NotificationDispatcher:
             )
             self._queue_job(job)
 
-    def _queue_job(self, job: NotificationJob) -> None:
+    def _queue_job(self, job: NotificationJob) -> bool:
         try:
             self._queue.put_nowait(job)
             platform_metrics.increment("notification_enqueued_total")
             platform_metrics.set_gauge("notification_queue_depth", self.queue_depth)
+            return True
         except asyncio.QueueFull:
             self.dropped_jobs += 1
             platform_metrics.increment("notification_dropped_total")
@@ -232,6 +233,7 @@ class NotificationDispatcher:
                 job.delivery_id,
                 job.event_type,
             )
+            return False
 
     def _restore_pending_jobs(self) -> None:
         """Requeue pending/in-flight deliveries after restart."""
@@ -291,7 +293,7 @@ class NotificationDispatcher:
             row.last_status_code = None
             db.commit()
 
-        self._queue_job(
+        queued = self._queue_job(
             NotificationJob(
                 delivery_id=row.id,
                 channel_id=row.channel_id,
@@ -301,6 +303,14 @@ class NotificationDispatcher:
                 payload=payload,
             )
         )
+        if not queued:
+            with SessionLocal() as db:
+                current = db.get(NotificationDelivery, delivery_id)
+                if current is not None:
+                    current.status = "failed"
+                    current.last_error = "Notification queue is full"
+                    db.commit()
+            return False
         return True
 
     async def _worker(self) -> None:
