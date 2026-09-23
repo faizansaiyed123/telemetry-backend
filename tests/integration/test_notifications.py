@@ -477,3 +477,25 @@ def test_production_webhook_destination_rejects_obvious_internal_targets(monkeyp
 
     with pytest.raises(ValueError, match="Private or loopback"):
         NotificationDispatcher.validate_url("https://127.0.0.1/hook")
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_manage_notification_channels() -> None:
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with app.router.lifespan_context(app):
+            settings = get_settings()
+            signup = await client.post(
+                "/api/auth/signup",
+                json={
+                    "email": f"viewer-{uuid4().hex[:8]}@example.com",
+                    "password": "strong-pass-123",
+                },
+            )
+            assert signup.status_code == 201, signup.text
+            client.headers.update(
+                {"Authorization": f"Bearer {signup.json()['access_token']}"}
+            )
+            listing = await client.get("/api/notification-channels")
+            assert listing.status_code == 403
