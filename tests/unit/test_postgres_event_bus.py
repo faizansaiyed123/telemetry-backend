@@ -1,10 +1,10 @@
-"""Unit tests for PostgreSQL event fan-out behavior without requiring a live database."""
+"""Unit tests for PostgreSQL event fan-out behavior."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from app.services.postgres_event_bus import PostgresEventBus
 
@@ -34,27 +34,21 @@ def test_event_bus_rejects_invalid_channel_name() -> None:
         raise AssertionError("invalid channel was accepted")
 
 
-async def test_publish_is_non_blocking_and_envelopes_message() -> None:
+async def test_publish_envelopes_message_when_started() -> None:
     bus = PostgresEventBus(
         "postgresql://telemetry:telemetry@localhost/db",
         on_message=_noop,
         max_queue_size=1,
     )
 
-    # The bus intentionally does not connect until start(); publish() remains
-    # a no-op when distributed fan-out is disabled/not started.
-    assert bus.publish('{"type":"system"}') is False
-
-    await bus.start()
-    try:
+    with patch.object(type(bus), "enabled", new_callable=PropertyMock, return_value=True):
         assert bus.publish('{"type":"system"}') is True
         payload = bus._queue.get_nowait()
-        envelope = json.loads(payload)
-        assert envelope["v"] == 1
-        assert envelope["origin"] == bus.origin
-        assert envelope["message"] == '{"type":"system"}'
-    finally:
-        await bus.stop()
+
+    envelope = json.loads(payload)
+    assert envelope["v"] == 1
+    assert envelope["origin"] == bus.origin
+    assert envelope["message"] == '{"type":"system"}'
 
 
 async def test_self_origin_notifications_are_ignored() -> None:
@@ -62,20 +56,18 @@ async def test_self_origin_notifications_are_ignored() -> None:
         "postgresql://telemetry:telemetry@localhost/db",
         on_message=_noop,
     )
-    await bus.start()
-    try:
-        with patch("app.services.postgres_event_bus.asyncio.run_coroutine_threadsafe") as schedule:
-            payload = json.dumps(
-                {
-                    "v": 1,
-                    "origin": bus.origin,
-                    "message": '{"type":"telemetry"}',
-                }
-            )
-            bus._handle_notification(payload)
-            schedule.assert_not_called()
-    finally:
-        await bus.stop()
+    bus._loop = asyncio.get_running_loop()
+
+    with patch("app.services.postgres_event_bus.asyncio.run_coroutine_threadsafe") as schedule:
+        payload = json.dumps(
+            {
+                "v": 1,
+                "origin": bus.origin,
+                "message": '{"type":"telemetry"}',
+            }
+        )
+        bus._handle_notification(payload)
+        schedule.assert_not_called()
 
 
 async def test_peer_notification_is_forwarded_to_async_callback() -> None:
@@ -88,17 +80,26 @@ async def test_peer_notification_is_forwarded_to_async_callback() -> None:
         "postgresql://telemetry:telemetry@localhost/db",
         on_message=callback,
     )
-    await bus.start()
-    try:
-        payload = json.dumps(
-            {
-                "v": 1,
-                "origin": "another-process",
-                "message": '{"type":"alert","data":{"id":"a1"}}',
-            }
-        )
-        bus._handle_notification(payload)
-        await asyncio.sleep(0.05)
-        assert received == ['{"type":"alert","data":{"id":"a1"}}']
-    finally:
-        await bus.stop()
+    bus._loop = asyncio.get_running_loop()
+
+    payload = json.dumps(
+        {
+            "v": 1,
+            "origin": "another-process",
+            "message": '{"type":"alert","data":{"id":"a1"}}',
+        }
+    )
+    bus._handle_notification(payload)
+    await asyncio.sleep(0.05)
+
+    assert received == ['{"type":"alert","data":{"id":"a1"}}']
+
+
+def test_publish_drops_oversized_payload() -> None:
+    bus = PostgresEventBus(
+        "postgresql://telemetry:telemetry@localhost/db",
+        on_message=_noop,
+    )
+
+    with patch.object(type(bus), "enabled", new_callable=PropertyMock, return_value=True):
+        assert bus.publish("x" * 10000) is False
