@@ -23,6 +23,11 @@ _COUNTER_NAMES = (
     "audit_events_total",
     "auth_rate_limited_total",
     "ingestion_rate_limited_total",
+    "notification_enqueued_total",
+    "notification_dropped_total",
+    "notification_delivered_total",
+    "notification_failed_total",
+    "notification_retry_total",
     "websocket_connections_total",
     "http_requests_total",
     "http_4xx_total",
@@ -40,6 +45,7 @@ _GAUGE_NAMES = (
     "alert_persistence_queue_depth",
     "incident_persistence_queue_depth",
     "open_incidents",
+    "notification_queue_depth",
 )
 
 
