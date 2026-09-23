@@ -166,8 +166,8 @@ class SyntheticMonitor:
             name=check.name,
             service_id=check.service_id,
             run=run,
-            previous_failures=previous,
             failure_threshold=self.failure_threshold,
+            expected_status=check.expected_status,
         )
         return run
 
