@@ -10,11 +10,13 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.models.alerts import Alert, Severity
-from app.models.db import AuditLog, Host, NotificationChannel, NotificationDelivery
-from app.services.notification_dispatcher import NotificationDispatcher, WebhookChannel
+from app.models.db import AuditLog, NotificationDelivery
 from app.db.session import SessionLocal
+from app.services.notification_dispatcher import NotificationDispatcher, WebhookChannel
 from app.main import create_app
 
 
@@ -39,7 +41,7 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         async with app.router.lifespan_context(app):
-            settings = __import__("app.core.config", fromlist=["get_settings"]).get_settings()
+            settings = get_settings()
             login = await ac.post(
                 "/api/auth/login",
                 data={
@@ -91,7 +93,7 @@ async def test_notification_channel_crud_audits_and_validation(client: AsyncClie
 
     with SessionLocal() as db:
         audit = db.scalar(
-            __import__("sqlalchemy", fromlist=["select"]).select(AuditLog)
+            select(AuditLog)
             .where(
                 AuditLog.resource_type == "notification_channel",
                 AuditLog.resource_id == channel["id"],
