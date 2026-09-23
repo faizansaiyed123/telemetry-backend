@@ -173,6 +173,7 @@ class TelemetryManager:
                             message=row.message,
                             acknowledged=row.acknowledged,
                             host_id=row.host_id,
+                            service_id=row.service_id,
                             source=row.source,
                             rule_id=row.rule_id,
                             incident_id=incident_by_alert.get(row.id),
@@ -290,6 +291,76 @@ class TelemetryManager:
         await self._broadcast_system("anomaly_triggered", f"Anomaly triggered on {metric}")
 
     # --- Event processing ---
+
+    async def process_synthetic_check_result(
+        self,
+        *,
+        check_id: str,
+        name: str,
+        service_id: str | None,
+        run,
+        previous_failures: int,
+        failure_threshold: int,
+    ) -> None:
+        """Convert repeated synthetic failures into incident-backed alerts."""
+        key = f"synthetic:{check_id}"
+        alert_to_broadcast: Alert | None = None
+
+        async with self._lock:
+            existing = self._active_alerts.get(key)
+            if run.success:
+                if existing is not None:
+                    existing.value = run.duration_ms
+                    existing.message = f"{name} recovered: HTTP {run.status_code}, {run.duration_ms:.1f} ms"
+                    existing.resolved = True
+                    existing.resolved_at = run.checked_at
+                    self._active_alerts.pop(key, None)
+                    platform_metrics.increment("alert_resolved_total")
+                    self._incident_engine.on_alert_resolved(existing)
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(existing, existing.host_id)
+                    alert_to_broadcast = existing
+            elif run.consecutive_failures >= failure_threshold:
+                if existing is None:
+                    status_text = (
+                        f"HTTP {run.status_code}"
+                        if run.status_code is not None
+                        else "request error"
+                    )
+                    alert = Alert(
+                        id=uuid4().hex,
+                        timestamp=run.checked_at,
+                        metric=f"synthetic:{check_id}",
+                        value=float(run.status_code or 0),
+                        baseline=200.0,
+                        severity="CRITICAL",
+                        message=(
+                            f"{name} failed {run.consecutive_failures} consecutive checks: "
+                            f"{status_text} ({run.error or f'{run.duration_ms:.1f} ms'})"
+                        ),
+                        host_id=None,
+                        service_id=service_id,
+                        source="synthetic",
+                    )
+                    self._active_alerts[key] = alert
+                    self._alerts.append(alert)
+                    platform_metrics.increment("alert_created_total")
+                    incident = self._incident_engine.on_alert_created(alert)
+                    alert.incident_id = incident.id
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(alert, None)
+                    alert_to_broadcast = alert
+                else:
+                    existing.value = float(run.status_code or 0)
+                    existing.message = (
+                        f"{name} still failing ({run.consecutive_failures} consecutive checks): "
+                        f"{run.error or f'HTTP {run.status_code}'}"
+                    )
+                    alert_to_broadcast = existing
+
+        if alert_to_broadcast is not None:
+            await self._broadcast_alert(alert_to_broadcast)
+        self._update_persistence_metrics()
 
     async def process_event(self, event: TelemetryEvent, *, persist: bool = True) -> None:
         """Send any telemetry source through the same processing pipeline."""
