@@ -61,6 +61,7 @@ EXPECTED_HTTP_ROUTES = {
     ("DELETE", "/api/notification-channels/{channel_id}"),
     ("POST", "/api/notification-channels/{channel_id}/test"),
     ("GET", "/api/notification-channels/deliveries"),
+    ("POST", "/api/notification-channels/deliveries/{delivery_id}/retry"),
 }
 
 
