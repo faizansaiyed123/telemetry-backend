@@ -261,6 +261,13 @@ class IncidentTimelineItem(BaseModel):
     source: str | None = None
 
 
+class IncidentServiceImpact(BaseModel):
+    service_id: str
+    service_name: str
+    hops: int
+    critical_dependency: bool
+
+
 class IncidentEvidenceResponse(BaseModel):
     incident: IncidentResponse
     timeline: list[IncidentTimelineItem]
@@ -270,6 +277,7 @@ class IncidentEvidenceResponse(BaseModel):
     correlation_window_minutes: int
     findings: list[str]
     metric_findings: list[str] = Field(default_factory=list)
+    service_impacts: list[IncidentServiceImpact] = Field(default_factory=list)
 
 
 class ServiceCreate(BaseModel):
