@@ -40,6 +40,7 @@ def upgrade() -> None:
         sa.Column("last_status_code", sa.Integer(), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.Column("payload_sha256", sa.String(length=64), nullable=False),
+    sa.Column("payload", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
     )
