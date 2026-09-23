@@ -55,6 +55,20 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/slos"),
     ("PATCH", "/api/slos/{slo_id}"),
     ("DELETE", "/api/slos/{slo_id}"),
+    ("GET", "/api/synthetic-checks"),
+    ("POST", "/api/synthetic-checks"),
+    ("PATCH", "/api/synthetic-checks/{check_id}"),
+    ("DELETE", "/api/synthetic-checks/{check_id}"),
+    ("POST", "/api/synthetic-checks/{check_id}/run"),
+    ("GET", "/api/synthetic-checks/{check_id}/runs"),
+    ("GET", "/api/services"),
+    ("POST", "/api/services"),
+    ("PATCH", "/api/services/{service_id}"),
+    ("DELETE", "/api/services/{service_id}"),
+    ("POST", "/api/services/{service_id}/dependencies"),
+    ("DELETE", "/api/services/{service_id}/dependencies/{target_service_id}"),
+    ("GET", "/api/services/{service_id}/dependencies"),
+    ("GET", "/api/topology"),
 }
 
 
