@@ -97,6 +97,7 @@ class AlertRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     host_id: Mapped[str | None] = mapped_column(ForeignKey("hosts.id", ondelete="SET NULL"), nullable=True, index=True)
+    service_id: Mapped[str | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"), nullable=True, index=True)
     metric: Mapped[str] = mapped_column(String(64), index=True)
     value: Mapped[float] = mapped_column(Float)
     baseline: Mapped[float] = mapped_column(Float)
@@ -117,6 +118,7 @@ class Incident(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     host_id: Mapped[str | None] = mapped_column(ForeignKey("hosts.id", ondelete="SET NULL"), nullable=True, index=True)
+    service_id: Mapped[str | None] = mapped_column(ForeignKey("services.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     severity: Mapped[str] = mapped_column(String(16))
