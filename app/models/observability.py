@@ -269,3 +269,140 @@ class IncidentEvidenceResponse(BaseModel):
     correlation_window_minutes: int
     findings: list[str]
     metric_findings: list[str] = Field(default_factory=list)
+
+
+class ServiceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    environment: str = Field(default="production", min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", "environment")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
+class ServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    environment: str | None = Field(default=None, min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ServiceResponse(BaseModel):
+    id: str
+    name: str
+    environment: str
+    description: str | None
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceDependencyCreate(BaseModel):
+    target_service_id: str
+    relationship: str = Field(default="depends_on", min_length=2, max_length=32)
+    criticality: str = Field(default="normal", pattern=r"^(low|normal|high|critical)$")
+
+
+class ServiceDependencyResponse(BaseModel):
+    source_service_id: str
+    target_service_id: str
+    relationship: str
+    criticality: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TopologyNode(BaseModel):
+    id: str
+    name: str
+    environment: str
+    check_count: int
+    healthy_check_count: int
+    incoming_dependencies: int
+    outgoing_dependencies: int
+
+
+class TopologyEdge(BaseModel):
+    source: str
+    target: str
+    relationship: str
+    criticality: str
+
+
+class TopologyResponse(BaseModel):
+    generated_at: datetime
+    nodes: list[TopologyNode]
+    edges: list[TopologyEdge]
+
+
+class SyntheticCheckRunResponse(BaseModel):
+    id: int
+    check_id: str
+    checked_at: datetime
+    duration_ms: float
+    status_code: int | None
+    success: bool
+    error: str | None
+    consecutive_failures: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyntheticCheckCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    url: str = Field(min_length=1, max_length=2048)
+    service_id: str | None = None
+    method: str = Field(default="GET", pattern=r"^(GET|HEAD)$")
+    interval_seconds: int = Field(default=30, ge=10, le=3600)
+    timeout_seconds: float = Field(default=10.0, ge=1, le=60)
+    expected_status: int = Field(default=200, ge=100, le=599)
+    enabled: bool = True
+
+    @field_validator("name", "url")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
+class SyntheticCheckUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    service_id: str | None = None
+    method: str | None = Field(default=None, pattern=r"^(GET|HEAD)$")
+    interval_seconds: int | None = Field(default=None, ge=10, le=3600)
+    timeout_seconds: float | None = Field(default=None, ge=1, le=60)
+    expected_status: int | None = Field(default=None, ge=100, le=599)
+    enabled: bool | None = None
+
+
+class SyntheticCheckResponse(BaseModel):
+    id: str
+    service_id: str | None
+    name: str
+    url: str
+    method: str
+    interval_seconds: int
+    timeout_seconds: float
+    expected_status: int
+    enabled: bool
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    last_run: SyntheticCheckRunResponse | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyntheticCheckRunListResponse(BaseModel):
+    check_id: str
+    runs: list[SyntheticCheckRunResponse]
