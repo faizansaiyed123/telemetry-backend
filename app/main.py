@@ -66,7 +66,11 @@ async def lifespan(app: FastAPI):
     app.state.telemetry_retention = retention
     await manager.start()
     await retention.start()
+    synthetic_monitor = SyntheticMonitor(manager)
+    app.state.synthetic_monitor = synthetic_monitor
+    await synthetic_monitor.start()
     yield
+    await synthetic_monitor.stop()
     await retention.stop()
     await manager.stop()
     await manager.ws_manager.disconnect_all()
