@@ -33,6 +33,7 @@ def upgrade() -> None:
         "notification_deliveries",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("channel_id", sa.String(length=36), sa.ForeignKey("notification_channels.id", ondelete="CASCADE"), nullable=False),
+    sa.Column("target_url", sa.String(length=2048), nullable=False),
         sa.Column("event_type", sa.String(length=64), nullable=False),
         sa.Column("event_id", sa.String(length=128), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False, server_default="pending"),
