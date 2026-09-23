@@ -312,6 +312,8 @@ WEBHOOK_MAX_ATTEMPTS=3
 WEBHOOK_QUEUE_SIZE=2000
 ```
 
+A fully local receiver is included at `examples/webhook_receiver.py`. For a zero-cost demo, run it with the same signing secret and create a channel pointing at `http://127.0.0.1:8787/webhook` in development. The receiver validates the timestamp, performs a constant-time HMAC comparison, and prints accepted deliveries.
+
 ### SLOs
 
 | Method | Endpoint | Access |
