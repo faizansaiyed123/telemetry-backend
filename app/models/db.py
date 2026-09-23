@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
@@ -216,13 +216,6 @@ class ServiceDependency(Base):
     relationship: Mapped[str] = mapped_column(String(32), default="depends_on")
     criticality: Mapped[str] = mapped_column(String(16), default="normal")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    source_service: Mapped[Service] = relationship(
-        foreign_keys=[source_service_id], backref="outgoing_dependencies"
-    )
-    target_service: Mapped[Service] = relationship(
-        foreign_keys=[target_service_id], backref="incoming_dependencies"
-    )
 
 
 class SyntheticCheck(Base):
