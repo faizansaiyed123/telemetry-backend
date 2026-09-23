@@ -121,6 +121,7 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
 class IncidentResponse(BaseModel):
     id: str
     host_id: str | None
+    service_id: str | None
     title: str
     status: str
     severity: str
