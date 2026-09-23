@@ -1,5 +1,8 @@
 """Add synthetic monitoring and service topology.
 
+This migration follows the persisted change-event revision so the Alembic
+history remains linear.
+
 Revision ID: 0008_synthetic_monitoring_topology
 Revises: 0007_change_events
 """
