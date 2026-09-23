@@ -23,6 +23,7 @@ from app.services.alert_rule_engine import AlertRuleEngine, RuleTransition
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.incident_engine import IncidentEngine, IncidentPersistence
 from app.services.platform_metrics import platform_metrics
+from app.services.postgres_event_bus import PostgresEventBus
 from app.services.telemetry_generator import TelemetryGenerator
 from app.services.telemetry_persistence import TelemetryPersistence
 from app.services.websocket_manager import WebSocketManager
@@ -70,6 +71,14 @@ class TelemetryManager:
         self._incident_persistence: IncidentPersistence | None = None
         self._incident_engine = IncidentEngine()
         self._rule_count = 0
+        self._event_bus: PostgresEventBus | None = None
+        if settings.distributed_event_fanout_enabled:
+            self._event_bus = PostgresEventBus(
+                settings.database_url,
+                channel=settings.distributed_event_channel,
+                max_queue_size=settings.distributed_event_queue_size,
+                on_message=self._handle_distributed_message,
+            )
 
     # --- Lifecycle ---
 
@@ -189,6 +198,8 @@ class TelemetryManager:
                     self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
         except Exception:
             logger.exception("Unable to load persisted alert rules/state")
+        if self._event_bus is not None:
+            await self._event_bus.start()
         self._task = asyncio.create_task(self._generation_loop())
         logger.info("Telemetry generation started at %d events/sec", self._rate)
 
@@ -211,6 +222,8 @@ class TelemetryManager:
             self._alert_persistence = None
         if self._incident_engine is not None:
             await self._incident_engine.stop()
+        if self._event_bus is not None:
+            await self._event_bus.stop()
         self._incident_persistence = None
         platform_metrics.set_gauge("telemetry_persistence_queue_depth", 0)
         platform_metrics.set_gauge("alert_persistence_queue_depth", 0)
@@ -426,16 +439,26 @@ class TelemetryManager:
     async def _broadcast_telemetry(self, event: TelemetryEvent) -> None:
         message = json.dumps({"type": "telemetry", "data": event.model_dump(mode="json")})
         await self._ws_manager.broadcast(message)
+        self._publish_distributed(message)
 
     async def _broadcast_alert(self, alert: Alert) -> None:
-        await self._ws_manager.broadcast(
-            json.dumps({"type": "alert", "data": alert.model_dump(mode="json")})
-        )
+        message = json.dumps({"type": "alert", "data": alert.model_dump(mode="json")})
+        await self._ws_manager.broadcast(message)
+        self._publish_distributed(message)
 
     async def _broadcast_system(self, event: str, message: str) -> None:
-        await self._ws_manager.broadcast(
-            json.dumps({"type": "system", "data": {"event": event, "message": message}})
-        )
+        payload = json.dumps({"type": "system", "data": {"event": event, "message": message}})
+        await self._ws_manager.broadcast(payload)
+        self._publish_distributed(payload)
+
+    def _publish_distributed(self, message: str) -> None:
+        """Enqueue a copy for peer processes without blocking local delivery."""
+        if self._event_bus is not None:
+            self._event_bus.publish(message)
+
+    async def _handle_distributed_message(self, message: str) -> None:
+        """Deliver a peer process broadcast without re-running business logic."""
+        await self._ws_manager.broadcast(message)
 
     # --- State/query helpers ---
 
@@ -540,6 +563,14 @@ class TelemetryManager:
     def incident_persistence_queue(self) -> int:
         return self._incident_persistence.queue_depth if self._incident_persistence is not None else 0
 
+    @property
+    def event_bus_queue(self) -> int:
+        return self._event_bus.queue_depth if self._event_bus is not None else 0
+
+    @property
+    def event_bus_connected(self) -> bool:
+        return bool(self._event_bus is not None and self._event_bus.enabled and platform_metrics.snapshot()["gauges"].get("event_bus_connected", 0))
+
     def get_current(self, host_id: str | None = None) -> TelemetryEvent | None:
         if host_id is None:
             return self._current
@@ -604,6 +635,8 @@ class TelemetryManager:
             "alert_persisted_events": self.alert_persisted_events,
             "alert_dropped_events": self.alert_dropped_events,
             "incident_persistence_queue": self.incident_persistence_queue,
+            "event_bus_queue": self.event_bus_queue,
+            "event_bus_connected": self.event_bus_connected,
             "open_incidents": sum(1 for item in self._incident_engine.all() if item.status != "resolved"),
         }
 
@@ -612,6 +645,7 @@ class TelemetryManager:
         platform_metrics.set_gauge("telemetry_persistence_queue_depth", self.telemetry_persistence_queue)
         platform_metrics.set_gauge("alert_persistence_queue_depth", self.alert_persistence_queue)
         platform_metrics.set_gauge("incident_persistence_queue_depth", self.incident_persistence_queue)
+        platform_metrics.set_gauge("event_bus_queue_depth", self.event_bus_queue)
         platform_metrics.set_gauge(
             "open_incidents",
             sum(1 for item in self._incident_engine.all() if item.status != "resolved"),
