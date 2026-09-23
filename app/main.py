@@ -63,10 +63,10 @@ async def lifespan(app: FastAPI):
     app.state.telemetry_manager = manager
     retention = TelemetryRetentionService()
     app.state.telemetry_retention = retention
-    await manager.start()
     await retention.start()
     await notification_dispatcher.start()
     app.state.notification_dispatcher = notification_dispatcher
+    await manager.start()
     yield
     await retention.stop()
     await manager.stop()
