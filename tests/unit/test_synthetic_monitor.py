@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.db import SyntheticCheck
 from app.services.synthetic_monitor import SyntheticMonitor, SyntheticTargetError, validate_synthetic_url
 
 
@@ -58,7 +57,7 @@ async def test_synthetic_monitor_reuses_persisted_failure_streak(monkeypatch) ->
     )
 
     from app.db.session import SessionLocal
-    from app.models.db import Service, SyntheticCheck
+    from app.models.db import SyntheticCheck
     from uuid import uuid4
 
     check_id = str(uuid4())
@@ -87,3 +86,7 @@ async def test_synthetic_monitor_reuses_persisted_failure_streak(monkeypatch) ->
     assert second.consecutive_failures == 2
 
     assert manager.process_synthetic_check_result.await_count == 2
+
+    with SessionLocal() as db:
+        db.delete(db.get(SyntheticCheck, check_id))
+        db.commit()
