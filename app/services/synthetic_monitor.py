@@ -5,10 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-from datetime import datetime
 from urllib.parse import urlparse
-from uuid import uuid4
-
 import httpx
 from sqlalchemy import select
 
@@ -101,6 +98,7 @@ class SyntheticMonitor:
                 self._tasks.pop(check_id, None)
 
         self._checks = {check.id: check for check in checks if check.enabled}
+        platform_metrics.set_gauge("synthetic_active_checks", len(self._checks))
         for check in self._checks.values():
             task = self._tasks.get(check.id)
             if task is None or task.done():
