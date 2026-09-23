@@ -231,7 +231,7 @@ class NotificationDispatcher:
             platform_metrics.increment("notification_dropped_total")
             logger.warning(
                 "Notification queue full; dropping delivery id=%s event=%s",
-                job.delivery_id,
+                delivery_id,
                 job.event_type,
             )
             return False
@@ -337,11 +337,19 @@ class NotificationDispatcher:
             return
         body = json.dumps(job.payload, separators=(",", ":"), sort_keys=True)
         payload_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        self._ensure_delivery_row(job, body, payload_hash)
+        delivery_id = self._ensure_delivery_row(job, body, payload_hash)
+        if delivery_id is None:
+            logger.error("Unable to establish durable webhook delivery id=%s", job.delivery_id)
+            return
 
         with SessionLocal() as db:
-            stored = db.get(NotificationDelivery, job.delivery_id)
-            previous_attempts = stored.attempts if stored is not None else 0
+            stored = db.get(NotificationDelivery, delivery_id)
+            if stored is None:
+                logger.error("Durable webhook delivery disappeared id=%s", delivery_id)
+                return
+            if stored.status == "delivered":
+                return
+            previous_attempts = stored.attempts
 
         last_error: str | None = None
         last_status: int | None = None
@@ -359,7 +367,7 @@ class NotificationDispatcher:
                 "Content-Type": "application/json",
                 "User-Agent": "TelemetryPlatform-Webhook/1.0",
                 "X-Telemetry-Event": job.event_type,
-                "X-Telemetry-Delivery": job.delivery_id,
+                "X-Telemetry-Delivery": delivery_id,
             }
             headers["X-Telemetry-Timestamp"] = delivery_timestamp
             if self._signing_secret:
@@ -376,7 +384,7 @@ class NotificationDispatcher:
                 last_status = response.status_code
                 if 200 <= response.status_code < 300:
                     self._set_delivery_state(
-                        job.delivery_id,
+                        delivery_id,
                         status="delivered",
                         attempts=total_attempts,
                         last_status_code=response.status_code,
@@ -398,7 +406,7 @@ class NotificationDispatcher:
             )
             if not should_retry or attempt >= self._max_attempts:
                 self._set_delivery_state(
-                    job.delivery_id,
+                    delivery_id,
                     status="failed",
                     attempts=total_attempts,
                     last_status_code=last_status,
@@ -417,11 +425,22 @@ class NotificationDispatcher:
             platform_metrics.increment("notification_retry_total")
             await asyncio.sleep(min(2 ** (attempt - 1), 4))
 
-    def _ensure_delivery_row(self, job: NotificationJob, body: str, payload_hash: str) -> None:
+    def _ensure_delivery_row(self, job: NotificationJob, body: str, payload_hash: str) -> str | None:
         with SessionLocal() as db:
-            existing = db.get(NotificationDelivery, job.delivery_id)
+            by_id = db.get(NotificationDelivery, job.delivery_id)
+            if by_id is not None:
+                return by_id.id
+
+            existing = db.scalar(
+                select(NotificationDelivery).where(
+                    NotificationDelivery.channel_id == job.channel_id,
+                    NotificationDelivery.event_type == job.event_type,
+                    NotificationDelivery.event_id == job.event_id,
+                )
+            )
             if existing is not None:
-                return
+                return existing.id
+
             try:
                 db.add(
                     NotificationDelivery(
@@ -437,8 +456,17 @@ class NotificationDispatcher:
                     )
                 )
                 db.commit()
+                return job.delivery_id
             except IntegrityError:
                 db.rollback()
+                existing = db.scalar(
+                    select(NotificationDelivery).where(
+                        NotificationDelivery.channel_id == job.channel_id,
+                        NotificationDelivery.event_type == job.event_type,
+                        NotificationDelivery.event_id == job.event_id,
+                    )
+                )
+                return existing.id if existing is not None else None
 
     def _set_delivery_state(
         self,
