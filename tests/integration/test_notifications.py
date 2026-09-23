@@ -170,9 +170,11 @@ async def test_signed_delivery_persists_payload_and_target_url() -> None:
     assert call["url"] == target_url
     body = call["content"]
     headers = call["headers"]
+    assert headers["X-Telemetry-Timestamp"]
+    signed = f'{headers["X-Telemetry-Timestamp"]}.{body}'.encode()
     expected = "sha256=" + hmac.new(
         dispatcher._signing_secret.encode(),
-        body.encode(),
+        signed,
         hashlib.sha256,
     ).hexdigest()
     assert headers["X-Telemetry-Signature"] == expected
@@ -359,3 +361,64 @@ async def test_telemetry_manager_emits_alert_and_incident_notifications(monkeypa
     )
     assert any(kind == "alert" and action == "resolved" for kind, action, _ in emitted)
     assert any(kind == "incident" and action == "resolved" for kind, action, _ in emitted)
+
+
+@pytest.mark.asyncio
+async def test_failed_delivery_can_be_requeued(client: AsyncClient) -> None:
+    name = f"qa-retry-{uuid4().hex[:8]}"
+    created = await client.post(
+        "/api/notification-channels",
+        json={"name": name, "url": "https://example.com/retry"},
+    )
+    assert created.status_code == 201, created.text
+    channel_id = created.json()["id"]
+
+    delivery_id = str(uuid4())
+    event_id = str(uuid4())
+    payload = json.dumps(
+        {
+            "version": 1,
+            "event_type": "alert.created",
+            "event_id": event_id,
+            "occurred_at": datetime.now(timezone.utc).isoformat(),
+            "data": {"metric": "cpu"},
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    with SessionLocal() as db:
+        db.add(
+            NotificationDelivery(
+                id=delivery_id,
+                channel_id=channel_id,
+                target_url="https://example.com/retry",
+                event_type="alert.created",
+                event_id=event_id,
+                status="failed",
+                attempts=3,
+                last_status_code=503,
+                last_error="service unavailable",
+                payload_sha256=hashlib.sha256(payload.encode()).hexdigest(),
+                payload=payload,
+            )
+        )
+        db.commit()
+
+    response = await client.post(
+        f"/api/notification-channels/deliveries/{delivery_id}/retry"
+    )
+    assert response.status_code == 202, response.text
+    assert response.json() == {"delivery_id": delivery_id, "status": "queued"}
+
+    from app.services.notification_dispatcher import notification_dispatcher
+    job = notification_dispatcher._queue.get_nowait()
+    assert job.delivery_id == delivery_id
+    assert job.url == "https://example.com/retry"
+
+    with SessionLocal() as db:
+        row = db.get(NotificationDelivery, delivery_id)
+        assert row is not None
+        assert row.status == "pending"
+        db.delete(row)
+        db.delete(db.get(NotificationChannel, channel_id))
+        db.commit()
