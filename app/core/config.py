@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     telemetry_retention_batch_size: int = 1000
     telemetry_retention_max_batches_per_run: int = 20
 
+    # Optional PostgreSQL LISTEN/NOTIFY fan-out for multi-worker WebSockets.
+    # Disabled by default so the normal single-process deployment has zero
+    # additional connection/thread overhead.
+    distributed_event_fanout_enabled: bool = False
+    distributed_event_channel: str = "telemetry_platform_events"
+    distributed_event_queue_size: int = 2000
+
     anomaly_z_threshold: float = 3.0
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
 
@@ -62,6 +69,7 @@ class Settings(BaseSettings):
         "telemetry_retention_cleanup_interval_seconds",
         "telemetry_retention_batch_size",
         "telemetry_retention_max_batches_per_run",
+        "distributed_event_queue_size",
     )
     @classmethod
     def validate_positive_integer(cls, v: int) -> int:

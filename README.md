@@ -67,7 +67,7 @@ All telemetry sources enter the same `TelemetryManager.process_event()` pipeline
 
 That means anomaly detection, rule evaluation, alert lifecycle, incident correlation, WebSocket publication, and runtime counters behave consistently regardless of whether an event came from the simulator or a real host.
 
-Database persistence is deliberately asynchronous and bounded. If PostgreSQL slows down, the real-time generation path is not held hostage by a synchronous database transaction.
+Database persistence is deliberately asynchronous and bounded. If PostgreSQL slows down, the real-time generation path is not held hostage by a synchronous database transaction. Optional cross-worker WebSocket fan-out is also decoupled from the hot path through a bounded background publisher.
 
 ## Tech stack
 
@@ -445,7 +445,7 @@ Examples include:
 - HTTP 4xx/5xx counts
 - HTTP request duration sum/count
 
-`/api/observability/metrics/prometheus` emits Prometheus text format, so a local Prometheus/Grafana setup can consume the data without a paid service.
+`/api/observability/metrics/prometheus` emits Prometheus text format, so a local Prometheus/Grafana setup can consume the data without a paid service. Event-bus health and queue depth are included in the same operational surface when distributed fan-out is enabled.
 
 ## Security and abuse protection
 
@@ -569,19 +569,21 @@ The image runs as a non-root user. Apply database migrations separately before s
 
 ## Scaling boundary
 
-The current service intentionally uses a single process for real-time ownership.
+The service still keeps telemetry, anomaly, and alert-rule state process-local. That boundary is deliberate: PostgreSQL remains the durable source of truth, while each worker owns its own hot-path state.
 
-That gives clear guarantees:
+For deployments with multiple backend workers, the optional PostgreSQL event fan-out layer uses native `LISTEN/NOTIFY` to propagate already-formed WebSocket messages between workers. A worker never re-processes a peer's event; it only delivers the serialized message to its local subscribers.
 
-- one process owns live telemetry state
-- one process owns the in-memory rule/anomaly state
-- WebSocket subscribers receive the same process-local stream
-- PostgreSQL stores durable history
-- rate limiting and runtime metrics are process-local
+Enable it with:
 
-A future multi-worker deployment would require shared coordination for at least rate limiting, alert/rule state, and WebSocket fan-out. PostgreSQL LISTEN/NOTIFY or another shared transport could be introduced only when the deployment actually needs it.
+```env
+DISTRIBUTED_EVENT_FANOUT_ENABLED=true
+DISTRIBUTED_EVENT_CHANNEL=telemetry_platform_events
+DISTRIBUTED_EVENT_QUEUE_SIZE=2000
+```
 
-That boundary is intentional: the project demonstrates the difference between making a single-process system robust and falsely calling it horizontally scalable.
+The publisher and listener use dedicated background connections, bounded queues, reconnect backoff, self-origin suppression, payload-size guards, and runtime metrics. The feature is disabled by default, so normal local development has no additional broker or external service requirement.
+
+This is a partial horizontal-scaling step, not a claim of full distributed ownership. Shared rate limiting and shared rule/anomaly state would still need a coordination design if the platform grows beyond process-local ownership.
 
 ## License
 
