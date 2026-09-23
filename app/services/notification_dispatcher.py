@@ -195,7 +195,8 @@ class NotificationDispatcher:
             event_id=event_id,
             payload=payload,
         )
-        self._queue_job(job)
+        if not self._queue_job(job):
+            raise RuntimeError("Notification queue is full")
         return delivery_id
 
     def _enqueue(self, event_type: str, event_id: str, payload: dict, severity: str) -> None:
@@ -338,14 +339,19 @@ class NotificationDispatcher:
         payload_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
         self._ensure_delivery_row(job, body, payload_hash)
 
+        with SessionLocal() as db:
+            stored = db.get(NotificationDelivery, job.delivery_id)
+            previous_attempts = stored.attempts if stored is not None else 0
+
         last_error: str | None = None
         last_status: int | None = None
         delivery_timestamp = str(int(datetime.now(timezone.utc).timestamp()))
         for attempt in range(1, self._max_attempts + 1):
+            total_attempts = previous_attempts + attempt
             self._set_delivery_state(
                 job.delivery_id,
                 status="delivering",
-                attempts=attempt,
+                attempts=total_attempts,
                 last_status_code=last_status,
                 last_error=last_error,
             )
@@ -372,7 +378,7 @@ class NotificationDispatcher:
                     self._set_delivery_state(
                         job.delivery_id,
                         status="delivered",
-                        attempts=attempt,
+                        attempts=total_attempts,
                         last_status_code=response.status_code,
                         last_error=None,
                         delivered_at=utc_now(),
@@ -394,7 +400,7 @@ class NotificationDispatcher:
                 self._set_delivery_state(
                     job.delivery_id,
                     status="failed",
-                    attempts=attempt,
+                    attempts=total_attempts,
                     last_status_code=last_status,
                     last_error=last_error,
                 )
