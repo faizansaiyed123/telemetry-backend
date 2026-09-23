@@ -186,3 +186,74 @@ class ChangeEvent(Base):
     external_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Service(Base):
+    __tablename__ = "services"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    environment: Mapped[str] = mapped_column(String(32), default="production", index=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ServiceDependency(Base):
+    __tablename__ = "service_dependencies"
+
+    source_service_id: Mapped[str] = mapped_column(
+        ForeignKey("services.id", ondelete="CASCADE"), primary_key=True
+    )
+    target_service_id: Mapped[str] = mapped_column(
+        ForeignKey("services.id", ondelete="CASCADE"), primary_key=True
+    )
+    relationship: Mapped[str] = mapped_column(String(32), default="depends_on")
+    criticality: Mapped[str] = mapped_column(String(16), default="normal")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    source_service: Mapped[Service] = relationship(
+        foreign_keys=[source_service_id], backref="outgoing_dependencies"
+    )
+    target_service: Mapped[Service] = relationship(
+        foreign_keys=[target_service_id], backref="incoming_dependencies"
+    )
+
+
+class SyntheticCheck(Base):
+    __tablename__ = "synthetic_checks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    service_id: Mapped[str | None] = mapped_column(
+        ForeignKey("services.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    url: Mapped[str] = mapped_column(String(2048))
+    method: Mapped[str] = mapped_column(String(8), default="GET")
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=30)
+    timeout_seconds: Mapped[float] = mapped_column(Float, default=10)
+    expected_status: Mapped[int] = mapped_column(Integer, default=200)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SyntheticCheckRun(Base):
+    __tablename__ = "synthetic_check_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    check_id: Mapped[str] = mapped_column(
+        ForeignKey("synthetic_checks.id", ondelete="CASCADE"), index=True
+    )
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    duration_ms: Mapped[float] = mapped_column(Float)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean)
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
