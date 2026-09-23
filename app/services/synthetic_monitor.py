@@ -84,6 +84,7 @@ class SyntheticMonitor:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        platform_metrics.set_gauge("synthetic_active_checks", 0)
         logger.info("Synthetic monitor stopped")
 
     def sync(self) -> None:
