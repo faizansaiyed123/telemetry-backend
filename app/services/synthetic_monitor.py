@@ -87,22 +87,22 @@ class SyntheticMonitor:
         logger.info("Synthetic monitor stopped")
 
     def sync(self) -> None:
-        """Reconcile scheduler tasks with persisted enabled checks."""
+        """Reconcile scheduler tasks with persisted enabled checks.
+
+        Tasks are restarted on every configuration sync so URL, interval,
+        timeout, and expected-status edits take effect immediately.
+        """
         with SessionLocal() as db:
             checks = list(db.scalars(select(SyntheticCheck).order_by(SyntheticCheck.name)))
 
-        current_ids = {check.id for check in checks if check.enabled}
-        for check_id, task in list(self._tasks.items()):
-            if check_id not in current_ids:
-                task.cancel()
-                self._tasks.pop(check_id, None)
+        for task in self._tasks.values():
+            task.cancel()
+        self._tasks.clear()
 
         self._checks = {check.id: check for check in checks if check.enabled}
         platform_metrics.set_gauge("synthetic_active_checks", len(self._checks))
         for check in self._checks.values():
-            task = self._tasks.get(check.id)
-            if task is None or task.done():
-                self._tasks[check.id] = asyncio.create_task(self._run_loop(check.id))
+            self._tasks[check.id] = asyncio.create_task(self._run_loop(check.id))
 
     async def run_once(self, check_id: str) -> SyntheticCheckRun:
         """Execute one check immediately and persist the result."""
@@ -137,7 +137,15 @@ class SyntheticMonitor:
             row = db.get(SyntheticCheck, check.id)
             if row is None:
                 raise KeyError(f"Synthetic check {check.id} not found")
-            previous = self._consecutive_failures.get(check.id, 0)
+            previous = self._consecutive_failures.get(check.id)
+            if previous is None:
+                previous_row = db.scalar(
+                    select(SyntheticCheckRun)
+                    .where(SyntheticCheckRun.check_id == check.id)
+                    .order_by(SyntheticCheckRun.checked_at.desc())
+                    .limit(1)
+                )
+                previous = previous_row.consecutive_failures if previous_row is not None else 0
             consecutive_failures = 0 if success else previous + 1
             run = SyntheticCheckRun(
                 check_id=check.id,
