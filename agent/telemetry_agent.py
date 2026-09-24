@@ -70,7 +70,7 @@ class HostCollector:
     def stop(self) -> None:
         self._stop.set()
 
-    def collect(self) -> dict:
+    def collect(self, *, verify_tls: bool = True, timeout_seconds: float = 5.0) -> dict:
         now = time.monotonic()
         net = psutil.net_io_counters()
         elapsed = max(0.001, now - self._previous_at)
@@ -94,8 +94,8 @@ class HostCollector:
         latency_ms = 0.0
         if self.probe_url:
             requests_per_second, error_rate, latency_ms = self._probe(
-                verify_tls=config.verify_tls,
-                timeout_seconds=config.timeout_seconds,
+                verify_tls=verify_tls,
+                timeout_seconds=timeout_seconds,
             )
 
         return {
@@ -146,7 +146,12 @@ class HostCollector:
 
         with httpx.Client(timeout=config.timeout_seconds, verify=config.verify_tls) as client:
             while not self._stop.is_set():
-                pending.append(self.collect())
+                pending.append(
+                    self.collect(
+                        verify_tls=config.verify_tls,
+                        timeout_seconds=config.timeout_seconds,
+                    )
+                )
                 if len(pending) >= config.batch_size:
                     pending = self._flush(client, endpoint, headers, pending, config)
                 self._stop.wait(config.interval_seconds)
