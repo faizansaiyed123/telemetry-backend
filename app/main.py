@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI):
         telemetry_rate=settings.telemetry_rate,
         max_rate=settings.max_telemetry_rate,
         anomaly_threshold=settings.anomaly_z_threshold,
+        source_mode=settings.telemetry_source_mode,
     )
     app.state.telemetry_manager = manager
     retention = TelemetryRetentionService()
