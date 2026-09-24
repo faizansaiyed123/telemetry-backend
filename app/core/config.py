@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str = "admin@example.com"
     bootstrap_admin_password: str = DEFAULT_BOOTSTRAP_ADMIN_PASSWORD
 
+    telemetry_source_mode: str = "hybrid"
     telemetry_rate: int = 10
     max_telemetry_rate: int = 100
     max_history_size: int = 5000
@@ -59,6 +60,14 @@ class Settings(BaseSettings):
 
     anomaly_z_threshold: float = 3.0
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @field_validator("telemetry_source_mode")
+    @classmethod
+    def validate_telemetry_source_mode(cls, v: str) -> str:
+        normalized = v.strip().lower()
+        if normalized not in {"synthetic", "agent", "hybrid"}:
+            raise ValueError("telemetry_source_mode must be one of: synthetic, agent, hybrid")
+        return normalized
 
     @field_validator(
         "telemetry_rate",
