@@ -8,11 +8,17 @@ def test_agent_config_from_env(monkeypatch):
     monkeypatch.setenv("TELEMETRY_API_KEY", "secret")
     monkeypatch.setenv("TELEMETRY_AGENT_INTERVAL", "3")
     monkeypatch.setenv("TELEMETRY_AGENT_BATCH_SIZE", "20")
+    monkeypatch.setenv("TELEMETRY_PROBE_URL", "https://service.example/health")
+    monkeypatch.setenv("TELEMETRY_VERIFY_TLS", "false")
+    monkeypatch.setenv("TELEMETRY_AGENT_TIMEOUT", "15")
     config = AgentConfig.from_env()
     assert config.api_url == "https://example.test"
     assert config.api_key == "secret"
     assert config.interval_seconds == 3.0
     assert config.batch_size == 20
+    assert config.probe_url == "https://service.example/health"
+    assert config.verify_tls is False
+    assert config.timeout_seconds == 15.0
 
 
 def test_agent_requires_credentials(monkeypatch):
@@ -50,6 +56,25 @@ def test_agent_check_mode_does_not_require_credentials(monkeypatch):
     monkeypatch.setattr("sys.argv", ["telemetry-agent", "--check"])
     from agent.telemetry_agent import main
     assert main() == 0
+
+
+def test_probe_honors_tls_verification_and_timeout():
+    from unittest.mock import MagicMock, patch
+
+    collector = HostCollector("https://service.example/health")
+    response = MagicMock()
+    response.is_success = True
+
+    with patch("agent.telemetry_agent.httpx.get", return_value=response) as get:
+        _, error_rate, latency_ms = collector._probe(verify_tls=False, timeout_seconds=15.0)
+
+    get.assert_called_once_with(
+        "https://service.example/health",
+        timeout=15.0,
+        verify=False,
+    )
+    assert error_rate == 0.0
+    assert latency_ms >= 0.0
 
 
 def test_flush_retries_server_error_and_preserves_no_duplicate_batch():
