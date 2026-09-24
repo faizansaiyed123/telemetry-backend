@@ -93,7 +93,10 @@ class HostCollector:
         error_rate = 0.0
         latency_ms = 0.0
         if self.probe_url:
-            requests_per_second, error_rate, latency_ms = self._probe()
+            requests_per_second, error_rate, latency_ms = self._probe(
+                verify_tls=config.verify_tls,
+                timeout_seconds=config.timeout_seconds,
+            )
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -120,10 +123,14 @@ class HostCollector:
                     return float(current)
         return 0.0
 
-    def _probe(self) -> tuple[float, float, float]:
+    def _probe(self, *, verify_tls: bool, timeout_seconds: float) -> tuple[float, float, float]:
         started = time.perf_counter()
         try:
-            response = httpx.get(self.probe_url, timeout=5.0)
+            response = httpx.get(
+                self.probe_url,
+                timeout=timeout_seconds,
+                verify=verify_tls,
+            )
             latency_ms = (time.perf_counter() - started) * 1000
             rps = 1.0 / max(0.001, latency_ms / 1000)
             return rps, 0.0 if response.is_success else 100.0, latency_ms
