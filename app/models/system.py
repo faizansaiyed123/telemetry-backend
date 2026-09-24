@@ -16,8 +16,6 @@ class HealthResponse(BaseModel):
     connected_clients: int
     events_generated: int
     events_ingested: int
-    source_mode: str
-    simulation_enabled: bool
 
 
 class ReadinessResponse(BaseModel):
@@ -32,9 +30,12 @@ class SimulationStatus(BaseModel):
     """Current simulation state."""
 
     running: bool
+    simulation_enabled: bool
+    source_mode: str
     rate: int
     sequence: int
     events_generated: int
+    events_ingested: int
     active_anomaly: str | None
     connected_clients: int
     uptime_seconds: float
