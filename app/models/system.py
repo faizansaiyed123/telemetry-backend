@@ -10,9 +10,14 @@ class HealthResponse(BaseModel):
 
     status: str
     uptime_seconds: float
+    source_mode: str
+    simulation_enabled: bool
     stream_active: bool
     connected_clients: int
     events_generated: int
+    events_ingested: int
+    source_mode: str
+    simulation_enabled: bool
 
 
 class ReadinessResponse(BaseModel):
