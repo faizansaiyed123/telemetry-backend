@@ -175,7 +175,7 @@ class TelemetryManager:
     async def start(self) -> None:
         if self._running:
             return
-        self._running = True
+        self._running = self.simulation_enabled
         self._stop_event.clear()
         self._start_time = utc_now()
         await self._ensure_persistence()
@@ -227,8 +227,13 @@ class TelemetryManager:
             logger.exception("Unable to load persisted alert rules/state")
         if self._event_bus is not None:
             await self._event_bus.start()
-        self._task = asyncio.create_task(self._generation_loop())
-        logger.info("Telemetry generation started at %d events/sec", self._rate)
+        if self.simulation_enabled:
+            self._task = asyncio.create_task(self._generation_loop())
+        logger.info(
+            "Telemetry runtime started (source_mode=%s, simulation_running=%s)",
+            self._source_mode,
+            self._running,
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -329,6 +334,8 @@ class TelemetryManager:
         intensity: float = 1.0,
         duration_seconds: float = 3.0,
     ) -> None:
+        if not self.simulation_enabled:
+            raise RuntimeError("Simulation controls are disabled in agent source mode")
         duration_events = max(1, int(duration_seconds * self._rate))
         self._generator.set_anomaly(metric, intensity=intensity, duration=duration_events)
         logger.info(
