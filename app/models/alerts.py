@@ -30,6 +30,7 @@ class Alert(BaseModel):
     resolved_at: datetime | None = None
     acknowledged: bool = False
     host_id: str | None = None
+    service_id: str | None = None
     source: str = "anomaly"
     rule_id: str | None = None
     incident_id: str | None = None
