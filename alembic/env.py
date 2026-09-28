@@ -7,7 +7,22 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import get_settings
 from app.db.session import Base
-from app.models.db import ApiKey, AlertRecord, AlertRule, AuditLog, Host, Incident, IncidentAlert, SLO, TelemetryRecord, User
+from app.models.db import (
+    ApiKey,
+    AlertRecord,
+    AlertRule,
+    AuditLog,
+    Host,
+    Incident,
+    IncidentAlert,
+    SLO,
+    Service,
+    ServiceDependency,
+    SyntheticCheck,
+    SyntheticCheckRun,
+    TelemetryRecord,
+    User,
+)
 
 config = context.config
 settings = get_settings()
