@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.alerts import Alert, Severity
-from app.models.db import AuditLog, NotificationDelivery
+from app.models.db import AuditLog, NotificationChannel, NotificationDelivery
 from app.db.session import SessionLocal
 from app.services.notification_dispatcher import NotificationDispatcher, WebhookChannel
 from app.main import create_app
@@ -151,6 +151,19 @@ async def test_signed_delivery_persists_payload_and_target_url() -> None:
         )
     }
 
+    with SessionLocal() as db:
+        db.add(
+            NotificationChannel(
+                id=channel_id,
+                name=f"test-{uuid4().hex[:8]}",
+                url=target_url,
+                event_types="alert.created",
+                min_severity="WARNING",
+                enabled=True,
+            )
+        )
+        db.commit()
+
     alert = Alert(
         id=str(uuid4()),
         timestamp=datetime.now(timezone.utc),
@@ -189,6 +202,7 @@ async def test_signed_delivery_persists_payload_and_target_url() -> None:
         assert delivery.payload == body
         assert delivery.payload_sha256 == hashlib.sha256(body.encode()).hexdigest()
         db.delete(delivery)
+        db.delete(db.get(NotificationChannel, channel_id))
         db.commit()
 
 
@@ -215,6 +229,19 @@ async def test_delivery_retries_transient_server_failure(monkeypatch: pytest.Mon
         )
     }
 
+    with SessionLocal() as db:
+        db.add(
+            NotificationChannel(
+                id=channel_id,
+                name=f"retry-{uuid4().hex[:8]}",
+                url="https://collector.example.net/retry",
+                event_types="alert.created",
+                min_severity="INFO",
+                enabled=True,
+            )
+        )
+        db.commit()
+
     alert = Alert(
         id=str(uuid4()),
         timestamp=datetime.now(timezone.utc),
@@ -236,6 +263,7 @@ async def test_delivery_retries_transient_server_failure(monkeypatch: pytest.Mon
         assert delivery.status == "delivered"
         assert delivery.attempts == 2
         db.delete(delivery)
+        db.delete(db.get(NotificationChannel, channel_id))
         db.commit()
 
 
@@ -252,6 +280,19 @@ async def test_pending_delivery_restores_using_original_target_url() -> None:
         enabled=True,
     )
     dispatcher._channels = {channel_id: channel}
+
+    with SessionLocal() as db:
+        db.add(
+            NotificationChannel(
+                id=channel_id,
+                name=f"restore-{uuid4().hex[:8]}",
+                url=channel.url,
+                event_types="alert.created",
+                min_severity="INFO",
+                enabled=True,
+            )
+        )
+        db.commit()
 
     delivery_id = str(uuid4())
     event_id = str(uuid4())
@@ -289,6 +330,7 @@ async def test_pending_delivery_restores_using_original_target_url() -> None:
         row = db.get(NotificationDelivery, delivery_id)
         assert row is not None
         db.delete(row)
+        db.delete(db.get(NotificationChannel, channel_id))
         db.commit()
 
 
@@ -404,14 +446,23 @@ async def test_failed_delivery_can_be_requeued(client: AsyncClient) -> None:
         )
         db.commit()
 
+    from app.services.notification_dispatcher import notification_dispatcher
+
+    queued: list[object] = []
+    monkeypatch.setattr(
+        notification_dispatcher,
+        "_queue_job",
+        lambda job: queued.append(job) or True,
+    )
+
     response = await client.post(
         f"/api/notification-channels/deliveries/{delivery_id}/retry"
     )
     assert response.status_code == 202, response.text
     assert response.json() == {"delivery_id": delivery_id, "status": "queued"}
 
-    from app.services.notification_dispatcher import notification_dispatcher
-    job = notification_dispatcher._queue.get_nowait()
+    assert len(queued) == 1
+    job = queued[0]
     assert job.delivery_id == delivery_id
     assert job.url == "https://example.com/retry"
 
