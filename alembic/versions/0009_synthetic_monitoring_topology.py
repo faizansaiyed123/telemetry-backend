@@ -4,14 +4,14 @@ This migration follows the persisted change-event revision so the Alembic
 history remains linear.
 
 Revision ID: 0009_synthetic_monitoring_topology
-Revises: 0007_change_events
+Revises: 0008_webhook_notifications
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0009_synthetic_monitoring_topology"
-down_revision = "0007_change_events"
+down_revision = "0008_webhook_notifications"
 branch_labels = None
 depends_on = None
 
