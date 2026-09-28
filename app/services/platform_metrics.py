@@ -23,6 +23,11 @@ _COUNTER_NAMES = (
     "audit_events_total",
     "auth_rate_limited_total",
     "ingestion_rate_limited_total",
+    "notification_enqueued_total",
+    "notification_dropped_total",
+    "notification_delivered_total",
+    "notification_failed_total",
+    "notification_retry_total",
     "websocket_connections_total",
     "http_requests_total",
     "http_4xx_total",
@@ -51,6 +56,7 @@ _GAUGE_NAMES = (
     "event_bus_queue_depth",
     "event_bus_publisher_connected",
     "event_bus_listener_connected",
+    "notification_queue_depth",
 )
 
 
