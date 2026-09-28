@@ -1,14 +1,14 @@
 """Scope alert and incident correlation by service.
 
 Revision ID: 0010_service_scoped_incidents
-Revises: 0008_synthetic_monitoring_topology
+Revises: 0009_synthetic_topology
 """
 
 from alembic import op
 import sqlalchemy as sa
 
 revision = "0010_service_scoped_incidents"
-down_revision = "0009_synthetic_monitoring_topology"
+down_revision = "0009_synthetic_topology"
 branch_labels = None
 depends_on = None
 
