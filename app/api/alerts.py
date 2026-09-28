@@ -34,6 +34,7 @@ def _to_alert(record: AlertRecord) -> Alert:
         resolved_at=record.resolved_at,
         acknowledged=record.acknowledged,
         host_id=record.host_id,
+        service_id=record.service_id,
         source=record.source,
         rule_id=record.rule_id,
     )
