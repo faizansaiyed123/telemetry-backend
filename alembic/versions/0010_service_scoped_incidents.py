@@ -1,7 +1,7 @@
 """Scope alert and incident correlation by service.
 
 Revision ID: 0010_service_scoped_incidents
-Revises: 0008_synthetic_monitoring_topology
+Revises: 0009_synthetic_topology
 """
 
 from alembic import op
