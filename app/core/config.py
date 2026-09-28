@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     webhook_timeout_seconds: float = 5.0
     webhook_max_attempts: int = 3
     webhook_queue_size: int = 2000
+    synthetic_allow_private_targets: bool = False
+    synthetic_failure_threshold: int = 3
 
     # Optional PostgreSQL LISTEN/NOTIFY fan-out for multi-worker WebSockets.
     # Disabled by default so the normal single-process deployment has zero
