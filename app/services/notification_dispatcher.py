@@ -64,6 +64,8 @@ class NotificationDispatcher:
         self._signing_secret = settings.webhook_signing_secret
         self._timeout = settings.webhook_timeout_seconds
         self._max_attempts = settings.webhook_max_attempts
+        # Keep the configured bound separate so each runtime start can create
+        # a queue owned by the current asyncio event loop.
         self._queue_size = settings.webhook_queue_size
         self._queue: asyncio.Queue[NotificationJob] = asyncio.Queue(
             maxsize=self._queue_size
