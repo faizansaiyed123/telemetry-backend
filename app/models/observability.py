@@ -269,3 +269,121 @@ class IncidentEvidenceResponse(BaseModel):
     correlation_window_minutes: int
     findings: list[str]
     metric_findings: list[str] = Field(default_factory=list)
+
+
+NOTIFICATION_EVENT_TYPES = (
+    "alert.created",
+    "alert.resolved",
+    "incident.created",
+    "incident.resolved",
+)
+NOTIFICATION_SEVERITIES = ("INFO", "WARNING", "CRITICAL")
+
+
+class NotificationChannelCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    url: str = Field(min_length=8, max_length=2048)
+    event_types: list[str] = Field(default_factory=lambda: list(NOTIFICATION_EVENT_TYPES), min_length=1, max_length=4)
+    min_severity: str = Field(default="WARNING", pattern=r"^(INFO|WARNING|CRITICAL)$")
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Webhook URL must be an absolute http(s) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Webhook URL must not contain credentials or a fragment")
+        return value.strip()
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value))
+        if not normalized or any(item not in NOTIFICATION_EVENT_TYPES for item in normalized):
+            raise ValueError(f"event_types must be selected from {NOTIFICATION_EVENT_TYPES}")
+        return normalized
+
+
+class NotificationChannelUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    url: str | None = Field(default=None, min_length=8, max_length=2048)
+    event_types: list[str] | None = Field(default=None, min_length=1, max_length=4)
+    min_severity: str | None = Field(default=None, pattern=r"^(INFO|WARNING|CRITICAL)$")
+    enabled: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Webhook URL must be an absolute http(s) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Webhook URL must not contain credentials or a fragment")
+        return value.strip()
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = list(dict.fromkeys(item.strip() for item in value))
+        if not normalized or any(item not in NOTIFICATION_EVENT_TYPES for item in normalized):
+            raise ValueError(f"event_types must be selected from {NOTIFICATION_EVENT_TYPES}")
+        return normalized
+
+
+class NotificationChannelResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+    event_types: list[str]
+    min_severity: str
+    enabled: bool
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationDeliveryResponse(BaseModel):
+    id: str
+    channel_id: str
+    event_type: str
+    event_id: str
+    status: str
+    attempts: int
+    last_status_code: int | None
+    last_error: str | None
+    payload_sha256: str
+    created_at: datetime
+    delivered_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationTestResponse(BaseModel):
+    delivery_id: str
+    status: str
