@@ -23,6 +23,7 @@ CORRELATION_WINDOW = timedelta(minutes=5)
 class IncidentState:
     id: str
     host_id: str | None
+    service_id: str | None
     title: str
     status: str
     severity: str
@@ -37,6 +38,7 @@ class IncidentState:
         return IncidentState(
             id=self.id,
             host_id=self.host_id,
+            service_id=self.service_id,
             title=self.title,
             status=self.status,
             severity=self.severity,
@@ -127,6 +129,7 @@ class IncidentPersistence:
                     Incident(
                         id=incident.id,
                         host_id=incident.host_id,
+                        service_id=incident.service_id,
                         title=incident.title,
                         status=incident.status,
                         severity=incident.severity,
@@ -137,6 +140,7 @@ class IncidentPersistence:
                 )
             else:
                 existing.host_id = incident.host_id
+                existing.service_id = incident.service_id
                 existing.title = incident.title
                 existing.status = incident.status
                 existing.severity = incident.severity
@@ -187,6 +191,7 @@ class IncidentEngine:
                 state = IncidentState(
                     id=incident.id,
                     host_id=incident.host_id,
+                    service_id=incident.service_id,
                     title=incident.title,
                     status=incident.status,
                     severity=incident.severity,
@@ -212,7 +217,7 @@ class IncidentEngine:
 
     def _candidate(self, alert: Alert) -> IncidentState | None:
         for incident in self._incidents.values():
-            if incident.host_id != alert.host_id:
+            if incident.host_id != alert.host_id or incident.service_id != alert.service_id:
                 continue
             if incident.status == "resolved":
                 continue
@@ -227,7 +232,8 @@ class IncidentEngine:
             incident = IncidentState(
                 id=str(uuid4()),
                 host_id=alert.host_id,
-                title=f"Correlated incident on {alert.host_id or 'system'}",
+                service_id=alert.service_id,
+                title=f"Correlated incident on {alert.service_id or alert.host_id or 'system'}",
                 status="open",
                 severity=alert.severity.value,
                 first_seen_at=alert.timestamp,

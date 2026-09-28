@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.db import AlertRecord, TelemetryRecord
+from app.models.db import AlertRecord, Service, ServiceDependency, TelemetryRecord
 
 
 METRIC_COLUMNS = {
@@ -19,6 +19,68 @@ METRIC_COLUMNS = {
     "error_rate": TelemetryRecord.error_rate,
     "latency_ms": TelemetryRecord.latency_ms,
 }
+
+
+
+def build_service_impacts(
+    db: Session,
+    *,
+    service_id: str | None,
+    max_hops: int = 5,
+) -> list[dict[str, object]]:
+    """Find bounded downstream services that depend on the incident service."""
+    if service_id is None:
+        return []
+
+    services = {
+        service.id: service
+        for service in db.scalars(select(Service))
+    }
+    if service_id not in services:
+        return []
+
+    reverse: dict[str, list[tuple[str, str]]] = {}
+    for dependency in db.scalars(select(ServiceDependency)):
+        reverse.setdefault(dependency.target_service_id, []).append(
+            (dependency.source_service_id, dependency.criticality)
+        )
+
+    queue: list[tuple[str, int, bool]] = [(service_id, 0, False)]
+    best_hop: dict[str, int] = {service_id: 0}
+    impacts: dict[str, tuple[int, bool]] = {}
+
+    while queue:
+        current, hops, critical = queue.pop(0)
+        if hops >= max_hops:
+            continue
+        for dependent_id, dependency_criticality in reverse.get(current, []):
+            next_hops = hops + 1
+            next_critical = critical or dependency_criticality == "critical"
+            existing_hops = best_hop.get(dependent_id)
+            if existing_hops is not None and existing_hops < next_hops:
+                continue
+            if existing_hops is None or next_hops < existing_hops:
+                best_hop[dependent_id] = next_hops
+            prior = impacts.get(dependent_id)
+            impacts[dependent_id] = (
+                min(prior[0], next_hops) if prior else next_hops,
+                (prior[1] if prior else False) or next_critical,
+            )
+            queue.append((dependent_id, next_hops, next_critical))
+
+    return [
+        {
+            "service_id": dependent_id,
+            "service_name": services[dependent_id].name,
+            "hops": hops,
+            "critical_dependency": critical,
+        }
+        for dependent_id, (hops, critical) in sorted(
+            impacts.items(),
+            key=lambda item: (item[1][0], services[item[0]].name),
+        )
+        if dependent_id in services
+    ][:50]
 
 
 def build_metric_findings(

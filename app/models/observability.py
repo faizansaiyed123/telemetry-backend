@@ -121,6 +121,7 @@ class ApiKeyCreatedResponse(ApiKeyResponse):
 class IncidentResponse(BaseModel):
     id: str
     host_id: str | None
+    service_id: str | None
     title: str
     status: str
     severity: str
@@ -260,6 +261,13 @@ class IncidentTimelineItem(BaseModel):
     source: str | None = None
 
 
+class IncidentServiceImpact(BaseModel):
+    service_id: str
+    service_name: str
+    hops: int
+    critical_dependency: bool
+
+
 class IncidentEvidenceResponse(BaseModel):
     incident: IncidentResponse
     timeline: list[IncidentTimelineItem]
@@ -269,3 +277,259 @@ class IncidentEvidenceResponse(BaseModel):
     correlation_window_minutes: int
     findings: list[str]
     metric_findings: list[str] = Field(default_factory=list)
+    service_impacts: list[IncidentServiceImpact] = Field(default_factory=list)
+
+
+NOTIFICATION_EVENT_TYPES = (
+    "alert.created",
+    "alert.resolved",
+    "incident.created",
+    "incident.resolved",
+)
+NOTIFICATION_SEVERITIES = ("INFO", "WARNING", "CRITICAL")
+
+
+class NotificationChannelCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    url: str = Field(min_length=8, max_length=2048)
+    event_types: list[str] = Field(default_factory=lambda: list(NOTIFICATION_EVENT_TYPES), min_length=1, max_length=4)
+    min_severity: str = Field(default="WARNING", pattern=r"^(INFO|WARNING|CRITICAL)$")
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Webhook URL must be an absolute http(s) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Webhook URL must not contain credentials or a fragment")
+        return value.strip()
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, value: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(item.strip() for item in value))
+        if not normalized or any(item not in NOTIFICATION_EVENT_TYPES for item in normalized):
+            raise ValueError(f"event_types must be selected from {NOTIFICATION_EVENT_TYPES}")
+        return normalized
+
+
+class NotificationChannelUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    url: str | None = Field(default=None, min_length=8, max_length=2048)
+    event_types: list[str] | None = Field(default=None, min_length=1, max_length=4)
+    min_severity: str | None = Field(default=None, pattern=r"^(INFO|WARNING|CRITICAL)$")
+    enabled: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("Notification channel name must not be blank")
+        return normalized
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from urllib.parse import urlsplit
+        parsed = urlsplit(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Webhook URL must be an absolute http(s) URL")
+        if parsed.username or parsed.password or parsed.fragment:
+            raise ValueError("Webhook URL must not contain credentials or a fragment")
+        return value.strip()
+
+    @field_validator("event_types")
+    @classmethod
+    def validate_event_types(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = list(dict.fromkeys(item.strip() for item in value))
+        if not normalized or any(item not in NOTIFICATION_EVENT_TYPES for item in normalized):
+            raise ValueError(f"event_types must be selected from {NOTIFICATION_EVENT_TYPES}")
+        return normalized
+
+
+class NotificationChannelResponse(BaseModel):
+    id: str
+    name: str
+    url: str
+    event_types: list[str]
+    min_severity: str
+    enabled: bool
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotificationDeliveryResponse(BaseModel):
+    id: str
+    channel_id: str
+    event_type: str
+    event_id: str
+    status: str
+    attempts: int
+    last_status_code: int | None
+    last_error: str | None
+    payload_sha256: str
+    created_at: datetime
+    delivered_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationTestResponse(BaseModel):
+    delivery_id: str
+    status: str
+
+
+class ServiceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    environment: str = Field(default="production", min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", "environment")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
+class ServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    environment: str | None = Field(default=None, min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ServiceResponse(BaseModel):
+    id: str
+    name: str
+    environment: str
+    description: str | None
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ServiceDependencyCreate(BaseModel):
+    target_service_id: str
+    relationship: str = Field(default="depends_on", min_length=2, max_length=32)
+    criticality: str = Field(default="normal", pattern=r"^(low|normal|high|critical)$")
+
+
+class ServiceDependencyResponse(BaseModel):
+    source_service_id: str
+    target_service_id: str
+    relationship: str
+    criticality: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TopologyNode(BaseModel):
+    id: str
+    name: str
+    environment: str
+    check_count: int
+    healthy_check_count: int
+    incoming_dependencies: int
+    outgoing_dependencies: int
+
+
+class TopologyEdge(BaseModel):
+    source: str
+    target: str
+    relationship: str
+    criticality: str
+
+
+class TopologyResponse(BaseModel):
+    generated_at: datetime
+    nodes: list[TopologyNode]
+    edges: list[TopologyEdge]
+
+
+class SyntheticCheckRunResponse(BaseModel):
+    id: int
+    check_id: str
+    checked_at: datetime
+    duration_ms: float
+    status_code: int | None
+    success: bool
+    error: str | None
+    consecutive_failures: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyntheticCheckCreate(BaseModel):
+    name: str = Field(min_length=3, max_length=120)
+    url: str = Field(min_length=1, max_length=2048)
+    service_id: str | None = None
+    method: str = Field(default="GET", pattern=r"^(GET|HEAD)$")
+    interval_seconds: int = Field(default=30, ge=10, le=3600)
+    timeout_seconds: float = Field(default=10.0, ge=1, le=60)
+    expected_status: int = Field(default=200, ge=100, le=599)
+    enabled: bool = True
+
+    @field_validator("name", "url")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
+class SyntheticCheckUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=120)
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    service_id: str | None = None
+    method: str | None = Field(default=None, pattern=r"^(GET|HEAD)$")
+    interval_seconds: int | None = Field(default=None, ge=10, le=3600)
+    timeout_seconds: float | None = Field(default=None, ge=1, le=60)
+    expected_status: int | None = Field(default=None, ge=100, le=599)
+    enabled: bool | None = None
+
+
+class SyntheticCheckResponse(BaseModel):
+    id: str
+    service_id: str | None
+    name: str
+    url: str
+    method: str
+    interval_seconds: int
+    timeout_seconds: float
+    expected_status: int
+    enabled: bool
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+    last_run: SyntheticCheckRunResponse | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyntheticCheckRunListResponse(BaseModel):
+    check_id: str
+    runs: list[SyntheticCheckRunResponse]

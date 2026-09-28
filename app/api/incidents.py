@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import require_authenticated, require_operator
 from app.db.session import get_db
 from app.models.db import AlertRecord, ChangeEvent, User
-from app.models.observability import IncidentEvidenceResponse, IncidentResponse, IncidentTimelineItem
+from app.models.observability import IncidentEvidenceResponse, IncidentResponse, IncidentTimelineItem, IncidentServiceImpact
 from app.services.audit import add_audit_log
-from app.services.incident_evidence import build_metric_findings
+from app.services.incident_evidence import build_metric_findings, build_service_impacts
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -20,6 +20,7 @@ def _response(incident) -> IncidentResponse:
     return IncidentResponse(
         id=incident.id,
         host_id=incident.host_id,
+        service_id=incident.service_id,
         title=incident.title,
         status=incident.status,
         severity=incident.severity,
@@ -142,6 +143,10 @@ def get_incident_evidence(
         first_seen_at=incident.first_seen_at,
         last_seen_at=incident.last_seen_at,
     )
+    service_impacts = [
+        IncidentServiceImpact(**impact)
+        for impact in build_service_impacts(db, service_id=incident.service_id)
+    ]
 
     return IncidentEvidenceResponse(
         incident=_response(incident),
@@ -152,6 +157,7 @@ def get_incident_evidence(
         correlation_window_minutes=30,
         findings=findings,
         metric_findings=metric_findings,
+        service_impacts=service_impacts,
     )
 
 

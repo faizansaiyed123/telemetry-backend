@@ -22,6 +22,7 @@ from app.services.alert_persistence import AlertPersistence
 from app.services.alert_rule_engine import AlertRuleEngine, RuleTransition
 from app.services.anomaly_detector import AnomalyDetector, AnomalyResult
 from app.services.incident_engine import IncidentEngine, IncidentPersistence
+from app.services.notification_dispatcher import notification_dispatcher
 from app.services.platform_metrics import platform_metrics
 from app.services.postgres_event_bus import PostgresEventBus
 from app.services.telemetry_generator import TelemetryGenerator
@@ -209,6 +210,7 @@ class TelemetryManager:
                             message=row.message,
                             acknowledged=row.acknowledged,
                             host_id=row.host_id,
+                            service_id=row.service_id,
                             source=row.source,
                             rule_id=row.rule_id,
                             incident_id=incident_by_alert.get(row.id),
@@ -348,6 +350,76 @@ class TelemetryManager:
 
     # --- Event processing ---
 
+    async def process_synthetic_check_result(
+        self,
+        *,
+        check_id: str,
+        name: str,
+        service_id: str | None,
+        run,
+        failure_threshold: int,
+        expected_status: int,
+    ) -> None:
+        """Convert repeated synthetic failures into incident-backed alerts."""
+        key = f"synthetic:{check_id}"
+        alert_to_broadcast: Alert | None = None
+
+        async with self._lock:
+            existing = self._active_alerts.get(key)
+            if run.success:
+                if existing is not None:
+                    existing.value = run.duration_ms
+                    existing.message = f"{name} recovered: HTTP {run.status_code}, {run.duration_ms:.1f} ms"
+                    existing.resolved = True
+                    existing.resolved_at = run.checked_at
+                    self._active_alerts.pop(key, None)
+                    platform_metrics.increment("alert_resolved_total")
+                    self._incident_engine.on_alert_resolved(existing)
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(existing, existing.host_id)
+                    alert_to_broadcast = existing
+            elif run.consecutive_failures >= failure_threshold:
+                if existing is None:
+                    status_text = (
+                        f"HTTP {run.status_code}"
+                        if run.status_code is not None
+                        else "request error"
+                    )
+                    alert = Alert(
+                        id=uuid4().hex,
+                        timestamp=run.checked_at,
+                        metric=f"synthetic:{check_id}",
+                        value=float(run.status_code or 0),
+                        baseline=float(expected_status),
+                        severity="CRITICAL",
+                        message=(
+                            f"{name} failed {run.consecutive_failures} consecutive checks: "
+                            f"{status_text} ({run.error or f'{run.duration_ms:.1f} ms'})"
+                        ),
+                        host_id=None,
+                        service_id=service_id,
+                        source="synthetic",
+                    )
+                    self._active_alerts[key] = alert
+                    self._alerts.append(alert)
+                    platform_metrics.increment("alert_created_total")
+                    incident = self._incident_engine.on_alert_created(alert)
+                    alert.incident_id = incident.id
+                    if self._alert_persistence is not None:
+                        self._alert_persistence.enqueue(alert, None)
+                    alert_to_broadcast = alert
+                else:
+                    existing.value = float(run.status_code or 0)
+                    existing.message = (
+                        f"{name} still failing ({run.consecutive_failures} consecutive checks): "
+                        f"{run.error or f'HTTP {run.status_code}'}"
+                    )
+                    alert_to_broadcast = existing
+
+        if alert_to_broadcast is not None:
+            await self._broadcast_alert(alert_to_broadcast)
+        self._update_persistence_metrics()
+
     async def process_event(self, event: TelemetryEvent, *, persist: bool = True) -> None:
         """Send any telemetry source through the same processing pipeline."""
         alerts_to_broadcast: list[Alert] = []
@@ -402,6 +474,9 @@ class TelemetryManager:
             platform_metrics.increment("alert_created_total")
             incident = self._incident_engine.on_alert_created(alert)
             alert.incident_id = incident.id
+            notification_dispatcher.enqueue_alert(alert, "created")
+            if len(incident.alert_ids) == 1:
+                notification_dispatcher.enqueue_incident(incident, "created")
             if self._alert_persistence is not None:
                 self._alert_persistence.enqueue(alert, alert.host_id)
             return alert
@@ -415,7 +490,10 @@ class TelemetryManager:
         existing.resolved = True
         existing.resolved_at = alert.resolved_at
         platform_metrics.increment("alert_resolved_total")
-        self._incident_engine.on_alert_resolved(existing)
+        resolved_incident = self._incident_engine.on_alert_resolved(existing)
+        notification_dispatcher.enqueue_alert(existing, "resolved")
+        if resolved_incident is not None and resolved_incident.status == "resolved":
+            notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
         if self._alert_persistence is not None:
             self._alert_persistence.enqueue(
                 existing,
@@ -456,6 +534,9 @@ class TelemetryManager:
                     platform_metrics.increment("alert_created_total")
                     incident = self._incident_engine.on_alert_created(alert)
                     alert.incident_id = incident.id
+                    notification_dispatcher.enqueue_alert(alert, "created")
+                    if len(incident.alert_ids) == 1:
+                        notification_dispatcher.enqueue_incident(incident, "created")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             alert,
@@ -470,7 +551,10 @@ class TelemetryManager:
                     existing.resolved = True
                     existing.resolved_at = utc_now()
                     platform_metrics.increment("alert_resolved_total")
-                    self._incident_engine.on_alert_resolved(existing)
+                    resolved_incident = self._incident_engine.on_alert_resolved(existing)
+                    notification_dispatcher.enqueue_alert(existing, "resolved")
+                    if resolved_incident is not None and resolved_incident.status == "resolved":
+                        notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             existing,
@@ -621,6 +705,10 @@ class TelemetryManager:
             and gauges.get("event_bus_listener_connected", 0)
         )
 
+    @property
+    def notification_queue(self) -> int:
+        return notification_dispatcher.queue_depth
+
     def get_current(self, host_id: str | None = None) -> TelemetryEvent | None:
         if host_id is None:
             return self._current
@@ -688,6 +776,7 @@ class TelemetryManager:
             "event_bus_queue": self.event_bus_queue,
             "event_bus_connected": self.event_bus_connected,
             "open_incidents": sum(1 for item in self._incident_engine.all() if item.status != "resolved"),
+            "notification_queue": self.notification_queue,
         }
 
     def _update_persistence_metrics(self) -> None:
@@ -696,6 +785,7 @@ class TelemetryManager:
         platform_metrics.set_gauge("alert_persistence_queue_depth", self.alert_persistence_queue)
         platform_metrics.set_gauge("incident_persistence_queue_depth", self.incident_persistence_queue)
         platform_metrics.set_gauge("event_bus_queue_depth", self.event_bus_queue)
+        platform_metrics.set_gauge("notification_queue_depth", self.notification_queue)
         platform_metrics.set_gauge(
             "open_incidents",
             sum(1 for item in self._incident_engine.all() if item.status != "resolved"),

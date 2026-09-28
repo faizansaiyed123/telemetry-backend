@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     telemetry_retention_cleanup_interval_seconds: int = 3600
     telemetry_retention_batch_size: int = 1000
     telemetry_retention_max_batches_per_run: int = 20
+    webhook_notifications_enabled: bool = True
+    webhook_signing_secret: str = ""
+    webhook_timeout_seconds: float = 5.0
+    webhook_max_attempts: int = 3
+    webhook_queue_size: int = 2000
+    synthetic_allow_private_targets: bool = False
+    synthetic_failure_threshold: int = 3
 
     # Optional PostgreSQL LISTEN/NOTIFY fan-out for multi-worker WebSockets.
     # Disabled by default so the normal single-process deployment has zero
@@ -79,11 +86,20 @@ class Settings(BaseSettings):
         "telemetry_retention_batch_size",
         "telemetry_retention_max_batches_per_run",
         "distributed_event_queue_size",
+        "webhook_max_attempts",
+        "webhook_queue_size",
     )
     @classmethod
     def validate_positive_integer(cls, v: int) -> int:
         if v < 1:
             raise ValueError("value must be at least 1")
+        return v
+
+    @field_validator("webhook_timeout_seconds")
+    @classmethod
+    def validate_webhook_timeout(cls, v: float) -> float:
+        if v <= 0 or v > 30:
+            raise ValueError("webhook_timeout_seconds must be between 0 and 30")
         return v
 
     @field_validator("anomaly_z_threshold")
@@ -104,6 +120,8 @@ class Settings(BaseSettings):
             errors.append("JWT_SECRET_KEY must be a production secret of at least 32 characters")
         if self.bootstrap_admin_password == DEFAULT_BOOTSTRAP_ADMIN_PASSWORD or len(self.bootstrap_admin_password) < 12:
             errors.append("BOOTSTRAP_ADMIN_PASSWORD must be changed and at least 12 characters")
+        if self.webhook_notifications_enabled and len(self.webhook_signing_secret) < 32:
+            errors.append("WEBHOOK_SIGNING_SECRET must be at least 32 characters when webhook notifications are enabled")
 
         if errors:
             raise ValueError("; ".join(errors))
