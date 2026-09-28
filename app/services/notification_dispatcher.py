@@ -76,6 +76,11 @@ class NotificationDispatcher:
     async def start(self) -> None:
         if not self._enabled or self._task is not None:
             return
+        # The dispatcher is a process-wide singleton, while tests may run
+        # multiple ASGI lifespans on different event loops. Recreate the
+        # asyncio-bound queue for every fresh worker lifecycle so queue
+        # operations never reuse a loop-bound waiter from a previous loop.
+        self._queue = asyncio.Queue(maxsize=self._queue.maxsize)
         self._stopping = False
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(self._timeout),
