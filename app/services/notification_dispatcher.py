@@ -64,8 +64,11 @@ class NotificationDispatcher:
         self._signing_secret = settings.webhook_signing_secret
         self._timeout = settings.webhook_timeout_seconds
         self._max_attempts = settings.webhook_max_attempts
+        # Keep the configured bound separate so each runtime start can create
+        # a queue owned by the current asyncio event loop.
+        self._queue_size = settings.webhook_queue_size
         self._queue: asyncio.Queue[NotificationJob] = asyncio.Queue(
-            maxsize=settings.webhook_queue_size
+            maxsize=self._queue_size
         )
         self._channels: dict[str, WebhookChannel] = {}
         self._task: asyncio.Task | None = None
@@ -77,6 +80,11 @@ class NotificationDispatcher:
         if not self._enabled or self._task is not None:
             return
         self._stopping = False
+        # asyncio.Queue binds to the first event loop that awaits on it.
+        # Recreate the runtime queue for each application lifespan so the
+        # singleton dispatcher remains safe across isolated test loops and
+        # restart cycles.
+        self._queue = asyncio.Queue(maxsize=self._queue_size)
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(self._timeout),
             follow_redirects=False,
