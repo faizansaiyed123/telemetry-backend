@@ -62,6 +62,20 @@ EXPECTED_HTTP_ROUTES = {
     ("POST", "/api/notification-channels/{channel_id}/test"),
     ("GET", "/api/notification-channels/deliveries"),
     ("POST", "/api/notification-channels/deliveries/{delivery_id}/retry"),
+    ("GET", "/api/synthetic-checks"),
+    ("POST", "/api/synthetic-checks"),
+    ("PATCH", "/api/synthetic-checks/{check_id}"),
+    ("DELETE", "/api/synthetic-checks/{check_id}"),
+    ("POST", "/api/synthetic-checks/{check_id}/run"),
+    ("GET", "/api/synthetic-checks/{check_id}/runs"),
+    ("GET", "/api/services"),
+    ("POST", "/api/services"),
+    ("PATCH", "/api/services/{service_id}"),
+    ("DELETE", "/api/services/{service_id}"),
+    ("POST", "/api/services/{service_id}/dependencies"),
+    ("DELETE", "/api/services/{service_id}/dependencies/{target_service_id}"),
+    ("GET", "/api/services/{service_id}/dependencies"),
+    ("GET", "/api/topology"),
 }
 
 
