@@ -21,9 +21,12 @@ async def get_simulation_status(
     manager = request.app.state.telemetry_manager
     return SimulationStatus(
         running=manager.running,
+        simulation_enabled=manager.simulation_enabled,
+        source_mode=manager.source_mode,
         rate=manager.rate,
         sequence=manager.sequence,
         events_generated=manager.events_generated,
+        events_ingested=manager.events_ingested,
         active_anomaly=manager.active_anomaly,
         connected_clients=manager.connected_clients,
         uptime_seconds=manager.uptime_seconds,
@@ -37,6 +40,8 @@ async def start_simulation(
 ) -> dict:
     """Start telemetry generation."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if manager.running:
         return {"status": "already_running", "message": "Telemetry generation is already running"}
     await manager.start()
@@ -50,6 +55,8 @@ async def pause_simulation(
 ) -> dict:
     """Pause telemetry generation."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if not manager.running:
         return {"status": "already_paused", "message": "Telemetry generation is already paused"}
     await manager.pause()
@@ -63,6 +70,8 @@ async def resume_simulation(
 ) -> dict:
     """Resume telemetry generation."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if manager.running:
         return {"status": "already_running", "message": "Telemetry generation is already running"}
     await manager.resume()
@@ -76,6 +85,8 @@ async def reset_simulation(
 ) -> dict:
     """Reset all telemetry state."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     await manager.reset()
     return {"status": "reset", "message": "Telemetry state has been reset"}
 
@@ -88,6 +99,8 @@ async def set_rate(
 ) -> dict:
     """Set the telemetry rate."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     try:
         await manager.set_rate(rate)
     except ValueError as exc:
@@ -106,6 +119,8 @@ async def trigger_anomaly(
 ) -> dict:
     """Trigger an anomaly on a specific metric."""
     manager = request.app.state.telemetry_manager
+    if not manager.simulation_enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     await manager.trigger_anomaly(
         body.metric,
         intensity=body.intensity,

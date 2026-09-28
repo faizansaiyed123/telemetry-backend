@@ -19,9 +19,12 @@ async def health(request: Request) -> HealthResponse:
     return HealthResponse(
         status="healthy",
         uptime_seconds=manager.uptime_seconds,
-        stream_active=manager.running,
+        source_mode=manager.source_mode,
+        simulation_enabled=manager.simulation_enabled,
+        stream_active=manager.running or manager.source_mode == "agent",
         connected_clients=manager.connected_clients,
         events_generated=manager.events_generated,
+        events_ingested=manager.events_ingested,
     )
 
 

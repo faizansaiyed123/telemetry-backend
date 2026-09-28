@@ -306,6 +306,22 @@ The simulator remains valuable as a deterministic fault-injection harness for va
 | GET | /api/observability/audit-logs | Admin |
 
 ## Real host telemetry agent
+The repository includes a free, open-source host agent under `agent/`.
+It collects:
+- CPU utilization
+- memory utilization
+- network throughput
+- available temperature sensors
+- optional HTTP probe latency and success/error signals
+
+For a deployment where the UI must consume **only real host telemetry**, set:
+
+```env
+TELEMETRY_SOURCE_MODE=agent
+```
+
+In `agent` mode the backend does not start the synthetic generator. Simulation-control endpoints return `409 Conflict` instead of silently injecting synthetic data. Real samples arrive through the authenticated ingestion endpoint and continue through the same anomaly, rule, incident, persistence, and WebSocket pipeline.
+
 
 The repository includes a free, open-source host agent under `agent/`.
 

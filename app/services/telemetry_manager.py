@@ -41,8 +41,13 @@ class TelemetryManager:
         telemetry_rate: int = 10,
         max_rate: int = 100,
         anomaly_threshold: float = 3.0,
+        source_mode: str = "hybrid",
     ) -> None:
         settings = get_settings()
+        normalized_source_mode = source_mode.strip().lower()
+        if normalized_source_mode not in {"synthetic", "agent", "hybrid"}:
+            raise ValueError("source_mode must be one of: synthetic, agent, hybrid")
+        self._source_mode = normalized_source_mode
         self._generator = TelemetryGenerator()
         self._anomaly_detector = AnomalyDetector(threshold=anomaly_threshold)
         self._alert_rule_engine = AlertRuleEngine()
@@ -83,6 +88,28 @@ class TelemetryManager:
     # --- Lifecycle ---
 
     async def _ensure_persistence(self) -> None:
+        if self._source_mode == "agent":
+            if self._alert_persistence is not None and self._incident_persistence is not None:
+                return
+            alert_persistence: AlertPersistence | None = None
+            incident_persistence: IncidentPersistence | None = None
+            try:
+                alert_persistence = AlertPersistence()
+                incident_persistence = IncidentPersistence()
+                await alert_persistence.start()
+                await incident_persistence.start()
+                self._alert_persistence = alert_persistence
+                self._incident_persistence = incident_persistence
+                self._incident_engine = IncidentEngine(incident_persistence)
+                await self._incident_engine.start()
+            except Exception:
+                logger.exception("Unable to initialize live-mode alert/incident persistence")
+                if alert_persistence is not None:
+                    await alert_persistence.stop()
+                if incident_persistence is not None:
+                    await incident_persistence.stop()
+            return
+
         if not self._persistence_enabled:
             return
         if self._persistence is not None and self._alert_persistence is not None:
@@ -148,7 +175,7 @@ class TelemetryManager:
     async def start(self) -> None:
         if self._running:
             return
-        self._running = True
+        self._running = self.simulation_enabled
         self._stop_event.clear()
         self._start_time = utc_now()
         await self._ensure_persistence()
@@ -200,8 +227,13 @@ class TelemetryManager:
             logger.exception("Unable to load persisted alert rules/state")
         if self._event_bus is not None:
             await self._event_bus.start()
-        self._task = asyncio.create_task(self._generation_loop())
-        logger.info("Telemetry generation started at %d events/sec", self._rate)
+        if self.simulation_enabled:
+            self._task = asyncio.create_task(self._generation_loop())
+        logger.info(
+            "Telemetry runtime started (source_mode=%s, simulation_running=%s)",
+            self._source_mode,
+            self._running,
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -230,6 +262,14 @@ class TelemetryManager:
         platform_metrics.set_gauge("incident_persistence_queue_depth", 0)
         logger.info("Telemetry generation stopped")
 
+    @property
+    def source_mode(self) -> str:
+        return self._source_mode
+
+    @property
+    def simulation_enabled(self) -> bool:
+        return self._source_mode != "agent"
+
     async def pause(self) -> None:
         if not self._running:
             return
@@ -237,6 +277,8 @@ class TelemetryManager:
         await self._broadcast_system("paused", "Telemetry generation paused")
 
     async def resume(self) -> None:
+        if not self.simulation_enabled:
+            return
         if self._running:
             return
         await self.start()
@@ -292,6 +334,8 @@ class TelemetryManager:
         intensity: float = 1.0,
         duration_seconds: float = 3.0,
     ) -> None:
+        if not self.simulation_enabled:
+            raise RuntimeError("Simulation controls are disabled in agent source mode")
         duration_events = max(1, int(duration_seconds * self._rate))
         self._generator.set_anomaly(metric, intensity=intensity, duration=duration_events)
         logger.info(
