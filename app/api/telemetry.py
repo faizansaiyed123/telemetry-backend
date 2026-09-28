@@ -248,6 +248,11 @@ async def get_telemetry_series(
     manager = request.app.state.telemetry_manager
     target_host_id = host_id or manager.persistence_host_id
     if target_host_id is None:
+        # Agent mode persists under the reporting agent's own host id rather
+        # than the synthetic persistence host, so fall back to the live event.
+        current = manager.get_current()
+        target_host_id = current.host_id if current is not None else None
+    if target_host_id is None:
         raise HTTPException(status_code=503, detail="No telemetry host is configured")
 
     metric_column = {
