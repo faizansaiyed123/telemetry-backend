@@ -220,6 +220,81 @@ async def test_rule_resolution_closes_incident(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_alert_get_preserves_persisted_acknowledgement(client: AsyncClient) -> None:
+    created = await client.post(
+        "/api/alert-rules",
+        json={
+            "name": f"Ack precedence {uuid4().hex}",
+            "metric": "cpu",
+            "operator": ">",
+            "threshold": 80,
+            "duration_seconds": 0,
+            "cooldown_seconds": 60,
+        },
+    )
+    assert created.status_code == 201, created.text
+    rule_id = created.json()["id"]
+
+    manager = client._transport.app.state.telemetry_manager
+    from app.models.db import AlertRecord
+    from app.models.telemetry import TelemetryEvent
+    from app.db.session import SessionLocal
+
+    await manager.process_event(
+        TelemetryEvent(
+            timestamp=datetime.now(timezone.utc),
+            sequence=900030,
+            cpu=95,
+            memory=50,
+            temperature=45,
+            network_mbps=10,
+            requests_per_second=100,
+            error_rate=0.1,
+            latency_ms=20,
+            host_id=manager.persistence_host_id,
+            source="api",
+        ),
+        persist=False,
+    )
+
+    live = [item for item in manager.get_alerts(active_only=True) if item.rule_id == rule_id]
+    assert live
+    alert = live[0]
+
+    db = SessionLocal()
+    try:
+        db.add(
+            AlertRecord(
+                id=alert.id,
+                host_id=alert.host_id,
+                service_id=alert.service_id,
+                metric=alert.metric,
+                value=alert.value,
+                baseline=alert.baseline,
+                severity=alert.severity.value,
+                message=alert.message,
+                status="active",
+                acknowledged=True,
+                source=alert.source,
+                rule_id=alert.rule_id,
+                timestamp=alert.timestamp,
+                resolved_at=None,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    manager._active_alerts[alert.id].acknowledged = False
+
+    response = await client.get("/api/alerts")
+    assert response.status_code == 200, response.text
+    matching = [item for item in response.json()["alerts"] if item["id"] == alert.id]
+    assert matching
+    assert matching[0]["acknowledged"] is True
+
+
+@pytest.mark.asyncio
 async def test_incident_acknowledgement_is_audited(client: AsyncClient) -> None:
     created = await client.post(
         "/api/alert-rules",
