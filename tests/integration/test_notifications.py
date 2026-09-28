@@ -406,7 +406,7 @@ async def test_telemetry_manager_emits_alert_and_incident_notifications(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_failed_delivery_can_be_requeued(client: AsyncClient) -> None:
+async def test_failed_delivery_can_be_requeued(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     name = f"qa-retry-{uuid4().hex[:8]}"
     created = await client.post(
         "/api/notification-channels",
