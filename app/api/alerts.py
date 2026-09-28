@@ -56,6 +56,14 @@ def get_alerts(
 
     by_id = {alert.id: alert for alert in persisted}
     for alert in live:
+        persisted_alert = by_id.get(alert.id)
+        if persisted_alert is not None:
+            # Persisted acknowledgement is durable state. Preserve it when
+            # the in-memory alert snapshot is stale, while still reflecting
+            # a newer in-memory acknowledgement before persistence catches up.
+            alert = alert.model_copy(
+                update={"acknowledged": alert.acknowledged or persisted_alert.acknowledged}
+            )
         by_id[alert.id] = alert
 
     alerts = sorted(by_id.values(), key=lambda alert: alert.timestamp, reverse=True)[:200]
