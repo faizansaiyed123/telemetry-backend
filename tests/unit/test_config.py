@@ -29,6 +29,7 @@ def test_production_accepts_replaced_secrets() -> None:
         app_env="production",
         jwt_secret_key="a" * 48,
         bootstrap_admin_password="a-safe-production-password",
+        webhook_signing_secret="a" * 48,
     )
     assert settings.app_env == "production"
 
