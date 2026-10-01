@@ -86,8 +86,6 @@ class TelemetryManager:
                 on_message=self._handle_distributed_message,
             )
 
-    # --- Lifecycle ---
-
     async def _ensure_persistence(self) -> None:
         if self._source_mode == "agent":
             if self._alert_persistence is not None and self._incident_persistence is not None:
@@ -348,8 +346,6 @@ class TelemetryManager:
         )
         await self._broadcast_system("anomaly_triggered", f"Anomaly triggered on {metric}")
 
-    # --- Event processing ---
-
     async def process_synthetic_check_result(
         self,
         *,
@@ -588,8 +584,6 @@ class TelemetryManager:
         """Deliver a peer process broadcast without re-running business logic."""
         await self._ws_manager.broadcast(message)
 
-    # --- State/query helpers ---
-
     @property
     def running(self) -> bool:
         return self._running
@@ -790,8 +784,6 @@ class TelemetryManager:
             "open_incidents",
             sum(1 for item in self._incident_engine.all() if item.status != "resolved"),
         )
-
-    # --- Generation ---
 
     async def _generation_loop(self) -> None:
         logger.debug("Generation loop started")
