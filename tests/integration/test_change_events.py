@@ -1,6 +1,7 @@
 """Integration tests for change-event correlation and incident evidence."""
 
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -67,7 +68,10 @@ async def test_create_and_list_change_event(client: AsyncClient) -> None:
 async def test_change_event_requires_operator(client: AsyncClient) -> None:
     signup = await client.post(
         "/api/auth/signup",
-        json={"email": "evidence-viewer@example.com", "password": "strong-pass-123"},
+        json={
+            "email": f"evidence-viewer-{uuid4().hex[:8]}@example.com",
+            "password": "strong-pass-123",
+        },
     )
     assert signup.status_code == 201, signup.text
     viewer_token = signup.json()["access_token"]
@@ -91,14 +95,14 @@ async def test_incident_evidence_contains_alert_and_nearby_change(client: AsyncC
     manager = client._transport.app.state.telemetry_manager
     created_host = await client.post(
         "/api/hosts",
-        json={"name": "evidence-isolated-host", "environment": "test"},
+        json={"name": f"evidence-host-{uuid4().hex[:8]}", "environment": "test"},
     )
     assert created_host.status_code == 201, created_host.text
     host_id = created_host.json()["id"]
 
     timestamp = utc_now() - timedelta(minutes=5)
     alert = Alert(
-        id="evidence-alert-1",
+        id=f"evidence-alert-{uuid4().hex[:8]}",
         timestamp=timestamp,
         metric="latency_ms",
         value=750.0,
