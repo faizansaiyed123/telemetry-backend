@@ -140,6 +140,10 @@ async def test_alert_rule_fires_after_condition_and_creates_incident(client: Asy
     assert created.status_code == 201, created.text
     rule_id = created.json()["id"]
 
+    # Pause the live generator first. Otherwise the next synthetic sample can
+    # fall below the rule threshold and resolve this alert before the
+    # assertions below read it back, making the test race the generator.
+    await client.post("/api/simulation/pause")
     manager = client._transport.app.state.telemetry_manager
     from app.models.telemetry import TelemetryEvent
 
