@@ -618,19 +618,90 @@ GitHub Actions starts PostgreSQL, applies Alembic migrations, runs the full suit
 
 ## Docker
 
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/) (v2 or later)
+
+### Quick start with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL 16 and the backend API in separate containers.
+PostgreSQL runs on the default port; the backend exposes port 8000.
+
+### Environment variables
+
+The backend reads configuration from environment variables
+(loaded automatically from a `.env` file in the same directory when running locally).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+psycopg://telemetry:telemetry@localhost:5432/telemetry` | PostgreSQL connection string |
+| `PORT` | `8000` | API HTTP port |
+| `APP_ENV` | `development` | Application environment |
+| `JWT_SECRET_KEY` | (dev default) | JWT signing secret |
+| `BOOTSTRAP_ADMIN_EMAIL` | `admin@example.com` | Bootstrap admin account email |
+| `BOOTSTRAP_ADMIN_PASSWORD` | (dev default) | Bootstrap admin account password |
+| `TELEMETRY_SOURCE_MODE` | `hybrid` | `synthetic`, `agent`, or `hybrid` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Comma-separated allowed origins |
+| `WEBHOOK_SIGNING_SECRET` | — | Secret for signing outbound webhooks |
+
+Copy `.env.example` to `.env` and customize for local development:
+
+```bash
+cp .env.example .env
+```
+
+When using `docker compose up`, environment variables are set in `docker-compose.yml`.
+Override them by creating a `.env` file in the project root (Docker Compose reads it automatically).
+
+### API port
+
+The backend listens on **port 8000** (configurable via `PORT` or `--port`).
+
+### How the frontend connects to the backend
+
+The frontend connects to the backend API using the `VITE_API_BASE_URL`
+environment variable (configured in the frontend's `.env` file).
+Set it to `http://localhost:8000` when the backend runs on the same host.
+
+### Stopping the containers
+
+```bash
+docker compose down
+```
+
+Add `-v` to also remove the PostgreSQL data volume:
+
+```bash
+docker compose down -v
+```
+
+### Rebuilding the containers
+
+```bash
+docker compose up --build --force-recreate
+```
+
+### Manual Docker usage
+
 Build:
 
 ```bash
 docker build -t telemetry-backend .
 ```
 
-Run:
+Run (without Docker Compose, provide your own database):
 
 ```bash
 docker run --rm -p 8000:8000 --env-file .env telemetry-backend
 ```
 
-The image runs as a non-root user. Apply database migrations separately before starting the application.
+The image runs as a non-root user. Database migrations are applied automatically
+by the container entrypoint before the application starts.
 
 ## Scaling boundary
 
