@@ -12,10 +12,14 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
 COPY app/ app/
+COPY alembic/ alembic/
+COPY alembic.ini .
+COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN uv sync --frozen --no-dev \
     && useradd --create-home --shell /usr/sbin/nologin appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && chmod +x /entrypoint.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -26,4 +30,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()" || exit 1
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
