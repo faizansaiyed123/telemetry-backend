@@ -10,3 +10,9 @@ __pycache__/
 docker-compose*.yml
 Dockerfile
 .dockerignore
+agent/
+examples/
+tests/
+docs/
+*.egg-info/
+.telemetry.pids.json
