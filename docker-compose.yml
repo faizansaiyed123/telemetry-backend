@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: telemetry-db
+    environment:
+      POSTGRES_USER: telemetry
+      POSTGRES_PASSWORD: telemetry
+      POSTGRES_DB: telemetry
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: telemetry-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://telemetry:telemetry@db:5432/telemetry
+      APP_ENV: development
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+      JWT_SECRET_KEY: development-only-secret-key-change-before-production-32
+      BOOTSTRAP_ADMIN_PASSWORD: change-me-in-production
+      WEBHOOK_SIGNING_SECRET: local-dev-webhook-signing-secret-32chars
+      TELEMETRY_SOURCE_MODE: hybrid
+      TELEMETRY_RATE: 10
+      MAX_HISTORY_SIZE: 5000
+    restart: unless-stopped
+
+volumes:
+  pgdata:
