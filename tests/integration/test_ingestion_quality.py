@@ -1,6 +1,7 @@
 """Integration tests for agent ingestion data-quality accounting."""
 
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -36,7 +37,7 @@ async def test_ingestion_reports_fresh_and_duplicate_samples(admin_client: Async
 
     created = await admin_client.post(
         f"/api/api-keys/hosts/{host_id}",
-        json={"name": "ingestion-quality-test"},
+        json={"name": f"ingestion-quality-{uuid4().hex[:8]}"},
     )
     assert created.status_code == 201, created.text
     key = created.json()["secret"]
@@ -44,7 +45,7 @@ async def test_ingestion_reports_fresh_and_duplicate_samples(admin_client: Async
     timestamp = datetime.now(timezone.utc).isoformat()
     event = {
         "timestamp": timestamp,
-        "sequence": 8_700_000_000_001,
+        "sequence": 8_700_000_000_000 + uuid4().int % 1_000_000_000,
         "cpu": 25,
         "memory": 50,
         "temperature": 45,
