@@ -1,0 +1,79 @@
+# run.pt - Telemetry backend development server launcher
+# Usage: powershell -File run.pt  (or .\run.pt)
+# Starts: Backend (uvicorn :8000), Webhook receiver (:8787)
+# Press Ctrl+C to stop all services.
+
+$ErrorActionPreference = "Stop"
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$VenvPython = Join-Path $RepoRoot ".venv" "Scripts" "python.exe"
+$PidFile = Join-Path $RepoRoot ".telemetry.pids.json"
+
+$Processes = @()
+
+function Stop-AllServices {
+    Write-Host "`nStopping all services..." -ForegroundColor Yellow
+    foreach ($proc in $Processes) {
+        if ($proc -and -not $proc.HasExited) {
+            try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+    foreach ($port in 8000, 8787) {
+        $found = netstat -ano | Select-String "LISTENING.*:$port " | ForEach-Object {
+            ($_ -split '\s+')[-1]
+        }
+        foreach ($p in $found) {
+            try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    }
+    if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
+    Write-Host "All services stopped." -ForegroundColor Red
+}
+
+[Console]::CancelKeyPress += {
+    $_.Cancel = $true
+    Stop-AllServices
+    exit 0
+}
+
+if (-not (Test-Path $VenvPython)) {
+    Write-Error "Backend venv not found at $VenvPython. Run 'uv sync' in backend/telemetry-backend first."
+    exit 1
+}
+
+# 1. Backend (uvicorn, port 8000)
+Write-Host "Starting Backend (uvicorn, port 8000)..." -ForegroundColor Cyan
+$be = Start-Process -FilePath $VenvPython -ArgumentList "-m","uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--log-level","info" -WorkingDirectory $RepoRoot -NoNewWindow -PassThru
+$Processes += $be
+Write-Host "  Backend  started (pid $($be.Id)) -> http://localhost:8000" -ForegroundColor Green
+
+Start-Sleep -Milliseconds 500
+
+# 2. Webhook receiver (port 8787)
+Write-Host "Starting Webhook receiver (port 8787)..." -ForegroundColor Cyan
+$env:WEBHOOK_SIGNING_SECRET = "local-dev-webhook-signing-secret-32chars"
+$wr = Start-Process -FilePath $VenvPython -ArgumentList "examples/webhook_receiver.py" -WorkingDirectory $RepoRoot -NoNewWindow -PassThru
+$Processes += $wr
+Write-Host "  Webhook  started (pid $($wr.Id)) -> http://localhost:8787" -ForegroundColor Green
+
+# Save PIDs
+$pidEntries = @()
+foreach ($proc in $Processes) {
+    $pidEntries += [PSCustomObject]@{name=$proc.ProcessName; pid=$proc.Id}
+}
+$pidEntries | ConvertTo-Json -Depth 1 | Out-File $PidFile -Encoding UTF8
+
+Write-Host "`nBackend services running. Press Ctrl+C to stop." -ForegroundColor Cyan
+
+try {
+    while ($true) {
+        Start-Sleep -Seconds 1
+        foreach ($proc in $Processes) {
+            if ($proc -and $proc.HasExited) {
+                Write-Host "Process $($proc.ProcessName) (pid $($proc.Id)) has exited unexpectedly." -ForegroundColor Red
+            }
+        }
+    }
+}
+finally {
+    Stop-AllServices
+}
