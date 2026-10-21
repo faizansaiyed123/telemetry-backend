@@ -27,9 +27,6 @@ class TelemetryIngestionService:
         """Persist a batch exactly once per host/sequence and return inserted events."""
         by_sequence = {}
         for item in payload.events:
-            # Preserve the first event for a sequence in a single request. The
-            # database uniqueness constraint is the final guard against races
-            # between concurrent agent requests.
             by_sequence.setdefault(item.sequence, item)
 
         sequences = list(by_sequence)

@@ -15,10 +15,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        # Configuration follows the conventional uppercase environment-variable
-        # names documented in .env.example (for example, DATABASE_URL and
-        # CORS_ALLOWED_ORIGINS). Keep env lookup case-insensitive so the
-        # documented deployment contract matches Pydantic Settings behavior.
         case_sensitive=False,
         extra="ignore",
     )
@@ -58,9 +54,6 @@ class Settings(BaseSettings):
     synthetic_allow_private_targets: bool = False
     synthetic_failure_threshold: int = 3
 
-    # Optional PostgreSQL LISTEN/NOTIFY fan-out for multi-worker WebSockets.
-    # Disabled by default so the normal single-process deployment has zero
-    # additional connection/thread overhead.
     distributed_event_fanout_enabled: bool = False
     distributed_event_channel: str = "telemetry_platform_events"
     distributed_event_queue_size: int = 2000

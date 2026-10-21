@@ -64,7 +64,6 @@ class HostCollector:
         self._last_sequence = 0
         self._stop = Event()
 
-        # Prime psutil's non-blocking CPU sampler.
         psutil.cpu_percent(interval=None)
 
     def stop(self) -> None:
@@ -81,8 +80,6 @@ class HostCollector:
         self._previous_net = net
         self._previous_at = now
 
-        # Epoch milliseconds keep sequence identifiers unique across agent
-        # process restarts while remaining compact enough for the API contract.
         self._last_sequence = max(self._last_sequence + 1, time.time_ns() // 1_000_000)
 
         cpu = float(psutil.cpu_percent(interval=None))

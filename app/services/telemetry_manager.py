@@ -181,8 +181,6 @@ class TelemetryManager:
         try:
             with SessionLocal() as db:
                 self.reload_alert_rules(db)
-                # A pause/resume reuses the in-memory alert state. Only hydrate
-                # from the database for a genuinely fresh runtime.
                 if not self._alerts:
                     active_rows = list(
                         db.scalars(

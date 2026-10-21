@@ -34,19 +34,17 @@ class TestTelemetryGenerator:
         """Values should vary over time, not be constant."""
         events = [self.gen.generate(sequence=i) for i in range(50)]
         cpu_values = [e.cpu for e in events]
-        assert len(set(cpu_values)) > 5  # Should have significant variation
+        assert len(set(cpu_values)) > 5  
 
     def test_values_are_not_purely_random(self):
         """Successive values should be correlated (smooth), not jumping wildly."""
         events = [self.gen.generate(sequence=i) for i in range(100)]
         cpu_diffs = [abs(events[i + 1].cpu - events[i].cpu) for i in range(len(events) - 1)]
         avg_diff = sum(cpu_diffs) / len(cpu_diffs)
-        # Smooth variation: average change should be small relative to the range
         assert avg_diff < 10
 
     def test_anomaly_trigger_cpu(self):
         """Triggering a CPU anomaly should increase CPU and correlated metrics."""
-        # Generate baseline events
         baseline = [self.gen.generate(sequence=i) for i in range(20)]
         baseline_cpu_avg = sum(e.cpu for e in baseline) / len(baseline)
 
@@ -103,7 +101,7 @@ class TestTelemetryGenerator:
         self.gen.set_anomaly("cpu", intensity=1.0, duration=5)
         for i in range(5):
             self.gen.generate(sequence=i)
-        assert self.gen.active_anomaly is None  # Should have expired
+        assert self.gen.active_anomaly is None  
 
     def test_unknown_anomaly_metric_raises(self):
         with pytest.raises(ValueError, match="Unknown anomaly metric"):

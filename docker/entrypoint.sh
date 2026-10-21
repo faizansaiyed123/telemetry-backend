@@ -1,5 +1,4 @@
 #!/bin/sh
-# Backend entrypoint: run database migrations, then start the application.
 
 set -e
 

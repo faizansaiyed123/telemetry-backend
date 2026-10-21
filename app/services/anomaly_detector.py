@@ -37,7 +37,6 @@ METRICS_TO_MONITOR = [
     "latency_ms",
 ]
 
-# Minimum number of data points before anomaly detection activates
 MIN_HISTORY = 30
 
 

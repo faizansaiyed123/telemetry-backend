@@ -48,13 +48,11 @@ class WebSocketManager:
                 return
             clients = list(self._clients)
 
-        # Send concurrently without holding the lock during sends
         results = await asyncio.gather(
             *[self._safe_send(client, message) for client in clients],
             return_exceptions=True,
         )
 
-        # Remove failed clients
         failed = [
             client for client, result in zip(clients, results, strict=False)
             if isinstance(result, Exception)

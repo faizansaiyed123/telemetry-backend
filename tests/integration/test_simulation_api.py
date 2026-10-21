@@ -81,8 +81,6 @@ class TestSimulationAPI:
         before = await client.get("/api/simulation/status")
         assert before.json()["events_generated"] > 0
 
-        # Pause first so the reset assertions are not racing the background
-        # generation loop. Reset itself preserves the pre-reset running state.
         await client.post("/api/simulation/pause")
         response = await client.post("/api/simulation/reset")
         assert response.status_code == 200
@@ -148,21 +146,15 @@ class TestSimulationAPI:
     async def test_trigger_anomaly_affects_telemetry(self, client):
         """Triggered anomaly should visibly affect telemetry."""
         import asyncio
-        # Get baseline
         await asyncio.sleep(0.3)
         before = await client.get("/api/telemetry/current")
         baseline_cpu = before.json()["event"]["cpu"]
 
-        # Trigger CPU anomaly
         await client.post("/api/simulation/trigger", json={"metric": "cpu"})
         await asyncio.sleep(0.5)
 
         after = await client.get("/api/telemetry/current")
-        # CPU should be elevated (or at least the anomaly should have been active)
-        # We check the status to see if anomaly was active
         status = await client.get("/api/simulation/status")
-        # The anomaly may have already expired, so we check the current event
-        # Just verify the trigger doesn't crash and telemetry continues
         assert after.status_code == 200
 
     async def test_start_already_running(self, client):

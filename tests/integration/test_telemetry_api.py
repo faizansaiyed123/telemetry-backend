@@ -30,7 +30,6 @@ async def client():
 async def client_with_events(client):
     """Client with some telemetry events generated."""
     import asyncio
-    # Give the background task time to generate events
     await asyncio.sleep(0.5)
     return client
 
@@ -55,11 +54,8 @@ class TestTelemetryAPI:
 
     async def test_current_telemetry_before_generation(self, client):
         """Before any events, current should show available=False."""
-        # Reset to clear state
         await client.post("/api/simulation/reset")
-        # Pause to stop generation
         await client.post("/api/simulation/pause")
-        # Reset again to clear history
         await client.post("/api/simulation/reset")
         response = await client.get("/api/telemetry/current")
         assert response.status_code == 200

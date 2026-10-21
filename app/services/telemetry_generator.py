@@ -21,7 +21,7 @@ class AnomalyTrigger:
 
     metric: str
     intensity: float = 1.0
-    duration: int = 30  # number of events to sustain the anomaly
+    duration: int = 30  
     elapsed: int = 0
 
     def is_active(self) -> bool:
@@ -35,7 +35,6 @@ class AnomalyTrigger:
 class GeneratorState:
     """Mutable state for the telemetry generator."""
 
-    # Baseline values (smoothed)
     cpu: float = 45.0
     memory: float = 60.0
     temperature: float = 50.0
@@ -44,14 +43,11 @@ class GeneratorState:
     error_rate: float = 0.5
     latency_ms: float = 30.0
 
-    # Smooth noise phase offsets for organic variation
     phase: float = field(default_factory=lambda: random.uniform(0, 2 * math.pi))
 
-    # Active anomaly
     anomaly: AnomalyTrigger | None = None
 
 
-# Metrics that can have anomalies triggered
 ANOMALY_METRICS = {"cpu", "memory", "temperature", "latency", "error_rate"}
 
 
@@ -87,7 +83,6 @@ class TelemetryGenerator:
         s = self.state
         s.phase += 0.15
 
-        # Smooth sinusoidal variation around baselines
         cpu_var = 8 * _smooth_noise(s.phase, freq=0.3)
         mem_var = 5 * _smooth_noise(s.phase + 1.0, freq=0.2)
         temp_var = 4 * _smooth_noise(s.phase + 2.0, freq=0.25)
@@ -104,42 +99,35 @@ class TelemetryGenerator:
         error_rate = _add_noise(s.error_rate + err_var, 0.1)
         latency_ms = _add_noise(s.latency_ms + lat_var, 2.0)
 
-        # Apply anomaly injection
         if s.anomaly and s.anomaly.is_active():
             intensity = s.anomaly.intensity * (1.0 - s.anomaly.elapsed / s.anomaly.duration * 0.3)
             metric = s.anomaly.metric
             if metric == "cpu":
                 cpu = min(100, cpu + 40 * intensity)
-                # Correlated: high CPU → higher latency, temperature
                 latency_ms += 20 * intensity
                 temperature += 8 * intensity
                 error_rate += 1.5 * intensity
             elif metric == "memory":
                 memory = min(100, memory + 35 * intensity)
-                # Correlated: high memory → more latency
                 latency_ms += 15 * intensity
                 error_rate += 0.8 * intensity
             elif metric == "temperature":
                 temperature = min(120, temperature + 30 * intensity)
-                # Correlated: high temp → CPU throttling, errors
                 cpu = max(0, cpu - 5 * intensity)
                 error_rate += 2.0 * intensity
                 latency_ms += 10 * intensity
             elif metric == "latency":
                 latency_ms += 60 * intensity
-                # Correlated: high latency → more errors
                 error_rate += 3.0 * intensity
                 requests_per_second = max(0, int(requests_per_second * (1 - 0.2 * intensity)))
             elif metric == "error_rate":
                 error_rate = min(100, error_rate + 15 * intensity)
-                # Correlated: high error rate → slightly lower effective throughput
                 requests_per_second = max(0, int(requests_per_second * (1 - 0.1 * intensity)))
 
             s.anomaly.tick()
             if not s.anomaly.is_active():
                 s.anomaly = None
 
-        # Smooth baselines toward current values (slow drift)
         s.cpu = s.cpu * 0.95 + cpu * 0.05
         s.memory = s.memory * 0.97 + memory * 0.03
         s.temperature = s.temperature * 0.96 + temperature * 0.04
@@ -148,7 +136,6 @@ class TelemetryGenerator:
         s.error_rate = s.error_rate * 0.97 + error_rate * 0.03
         s.latency_ms = s.latency_ms * 0.95 + latency_ms * 0.05
 
-        # Clamp to valid ranges
         cpu = _clamp(cpu, 0, 100)
         memory = _clamp(memory, 0, 100)
         temperature = _clamp(temperature, 0, 120)

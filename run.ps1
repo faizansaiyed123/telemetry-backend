@@ -1,10 +1,3 @@
-# Telemetry — single entry point for local development
-# Usage:
-#   Start:  .\run.ps1 -Start   (or just .\run.ps1)
-#   Stop:   .\run.ps1 -Stop
-#   Restart:.\run.ps1 -Restart
-#
-# Starts: Backend (uvicorn :8000), Webhook receiver (:8787)
 
 param(
     [switch]$Start,
@@ -37,7 +30,6 @@ function Stop-All {
         }
     }
 
-    # Fallback: kill any stragglers on our ports
     foreach ($port in 8000, 8787) {
         $found = netstat -ano | Select-String "LISTENING.*:$port " | ForEach-Object {
             ($_ -split '\s+')[-1]
@@ -67,12 +59,10 @@ function Start-All {
     $secret = if ($env:WEBHOOK_SIGNING_SECRET) { $env:WEBHOOK_SIGNING_SECRET } else { "local-dev-webhook-signing-secret-32chars" }
     $pids = @()
 
-    # 1. Backend (uvicorn)
     $be = Start-Process -FilePath $VenvPython -ArgumentList "-m","uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--log-level","info" -WorkingDirectory $RepoRoot -NoNewWindow -PassThru
     $pids += @{name="backend"; pid=$be.Id}
     Write-Host "Backend  started (pid $($be.Id)) :8000" -ForegroundColor Green
 
-    # 2. Webhook receiver
     $wr = Start-Process -FilePath $VenvPython -ArgumentList "examples/webhook_receiver.py" -WorkingDirectory $RepoRoot -NoNewWindow -PassThru -Environment @{WEBHOOK_SIGNING_SECRET=$secret}
     if (-not $wr.Id) {
         $wr = Start-Process -FilePath "cmd" -ArgumentList "/c","set WEBHOOK_SIGNING_SECRET=$secret & $VenvPython examples/webhook_receiver.py" -WorkingDirectory $RepoRoot -NoNewWindow -PassThru
@@ -88,5 +78,4 @@ if ($Stop) { Stop-All; return }
 if ($Restart) { Stop-All; Start-Sleep -Seconds 2; Start-All; return }
 if ($Start) { Start-All; return }
 
-# Default: start
 Start-All

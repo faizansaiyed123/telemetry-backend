@@ -87,7 +87,6 @@ def start_all():
 
     pids = []
 
-    # 1. Backend (uvicorn)
     be = subprocess.Popen(
         [str(VENV_PYTHON), "-m", "uvicorn", "app.main:app",
          "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"],
@@ -96,7 +95,6 @@ def start_all():
     pids.append({"name": "backend", "pid": be.pid})
     print(f"Backend  started (pid {be.pid}) :8000")
 
-    # 2. Webhook receiver
     wr = subprocess.Popen(
         [str(VENV_PYTHON), "examples/webhook_receiver.py"],
         cwd=str(BACKEND_DIR),

@@ -111,8 +111,6 @@ class TelemetryRetentionService:
         try:
             await self.run_once()
         except Exception:
-            # The scheduled worker must remain alive after a transient database
-            # failure; the error and metrics already record the failed run.
             pass
 
         while True:

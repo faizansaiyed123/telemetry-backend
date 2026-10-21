@@ -249,9 +249,7 @@ class PostgresEventBus:
     @staticmethod
     def _consume_callback_result(future: object) -> None:
         try:
-            # concurrent.futures.Future API; kept duck-typed to avoid leaking
-            # the implementation detail into the public service contract.
-            future.result()  # type: ignore[attr-defined]
+            future.result()  
         except Exception:
             platform_metrics.increment("event_bus_callback_errors_total")
             logger.exception("Distributed event callback failed")

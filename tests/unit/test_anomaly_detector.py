@@ -37,7 +37,7 @@ class TestAnomalyDetector:
 
     def test_insufficient_history(self):
         """Should not flag anomalies when history is insufficient."""
-        for i in range(5):  # Less than min_history=10
+        for i in range(5):  
             results = self.detector.update(make_event(sequence=i, cpu=50.0))
         for r in results:
             assert not r.is_anomaly
@@ -51,10 +51,8 @@ class TestAnomalyDetector:
 
     def test_detects_anomaly(self):
         """A spike after sufficient history should be detected."""
-        # Build up normal history
         for i in range(20):
             self.detector.update(make_event(sequence=i, cpu=50.0))
-        # Inject a spike
         results = self.detector.update(make_event(sequence=20, cpu=95.0))
         cpu_result = [r for r in results if r.metric == "cpu"][0]
         assert cpu_result.is_anomaly
@@ -64,7 +62,6 @@ class TestAnomalyDetector:
         """Zero standard deviation should not crash or produce false anomalies."""
         for i in range(20):
             self.detector.update(make_event(sequence=i, cpu=50.0))
-        # All same values → std_dev = 0
         results = self.detector.update(make_event(sequence=20, cpu=50.0))
         cpu_result = [r for r in results if r.metric == "cpu"][0]
         assert not cpu_result.is_anomaly
@@ -75,10 +72,8 @@ class TestAnomalyDetector:
         detector_low = AnomalyDetector(threshold=1.0, window_size=50, min_history=10)
         for i in range(20):
             detector_low.update(make_event(sequence=i, cpu=50.0))
-        # Small deviation
         results = detector_low.update(make_event(sequence=20, cpu=55.0))
         cpu_result = [r for r in results if r.metric == "cpu"][0]
-        # With threshold=1.0, even a small spike should be flagged
         assert cpu_result.is_anomaly
 
     def test_high_threshold_prevents_detection(self):
@@ -94,7 +89,6 @@ class TestAnomalyDetector:
         """Very high z-score should produce CRITICAL severity."""
         for i in range(20):
             self.detector.update(make_event(sequence=i, cpu=50.0))
-        # Massive spike
         results = self.detector.update(make_event(sequence=20, cpu=100.0))
         cpu_result = [r for r in results if r.metric == "cpu"][0]
         if cpu_result.is_anomaly:
@@ -105,7 +99,6 @@ class TestAnomalyDetector:
         for i in range(20):
             self.detector.update(make_event(sequence=i, cpu=50.0))
         self.detector.reset()
-        # After reset, should not have enough history
         results = self.detector.update(make_event(sequence=0, cpu=95.0))
         for r in results:
             assert not r.is_anomaly
@@ -131,7 +124,6 @@ class TestAnomalyDetector:
             event = make_event(sequence=i, cpu=50.0)
             r1 = d1.update(event)
             r2 = d2.update(event)
-        # Inject same spike
         event = make_event(sequence=25, cpu=95.0)
         r1 = d1.update(event)
         r2 = d2.update(event)

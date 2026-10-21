@@ -38,8 +38,6 @@ async def ingest_telemetry(
         payload=payload,
     )
 
-    # Persist credential activity only after the telemetry transaction has
-    # succeeded. The key secret itself is never stored or returned here.
     key.last_used_at = utc_now()
     db.commit()
 

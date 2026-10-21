@@ -24,19 +24,13 @@ from __future__ import annotations
 import os
 from urllib.parse import urlsplit, urlunsplit
 
-# Tests are not a production deployment: never trigger production secret
-# validation in app/core/config.py.
 os.environ.setdefault("APP_ENV", "development")
 
-# The suite is written against the hybrid mode used by CI. Individual tests
-# that care about agent mode pass source_mode explicitly to TelemetryManager.
 os.environ["TELEMETRY_SOURCE_MODE"] = "hybrid"
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-only-secret-key-never-for-production-32")
 os.environ.setdefault("BOOTSTRAP_ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "test-only-password")
-# Webhook notifications are enabled by default and require a signing secret of
-# at least 32 characters.
 os.environ.setdefault("WEBHOOK_SIGNING_SECRET", "test-only-webhook-signing-secret-value")
 
 
@@ -44,7 +38,6 @@ def _dedicated_test_database_url() -> str | None:
     """Point tests at a sibling ``*_test`` database, leaving real data alone."""
     configured = os.environ.get("DATABASE_URL")
     if not configured:
-        # Read the developer's .env purely to discover which server to use.
         try:
             from app.core.config import get_settings
 
@@ -75,7 +68,6 @@ def _prepare_test_database(target: str) -> None:
     from the same state as CI regardless of what earlier runs left behind.
     """
     test_database, maintenance_url = target.split("|", 1)
-    # psycopg does not understand SQLAlchemy's "+psycopg" driver prefix.
     maintenance_url = maintenance_url.replace("postgresql+psycopg://", "postgresql://", 1)
 
     if not test_database.endswith("_test"):
@@ -89,7 +81,6 @@ def _prepare_test_database(target: str) -> None:
     url = make_url(os.environ["DATABASE_URL"])
 
     with psycopg.connect(maintenance_url, autocommit=True) as connection:
-        # Terminate stragglers so the drop cannot be blocked by an open session.
         connection.execute(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
             "WHERE datname = %s AND pid <> pg_backend_pid()",
@@ -116,7 +107,7 @@ _target = _dedicated_test_database_url()
 if _target is not None:
     try:
         _prepare_test_database(_target)
-    except Exception as exc:  # pragma: no cover - surfaced as a test error
+    except Exception as exc:  
         raise RuntimeError(
             f"Unable to prepare the isolated test database for {os.environ['DATABASE_URL']}: {exc}"
         ) from exc

@@ -244,8 +244,6 @@ class IncidentEngine:
         else:
             if SEVERITY_RANK[alert.severity.value] > SEVERITY_RANK[incident.severity]:
                 incident.severity = alert.severity.value
-            # Acknowledgement applies to the current alert set. A new alert
-            # reopens the incident so operators cannot miss a fresh signal.
             if incident.status == "acknowledged":
                 incident.status = "open"
             incident.last_seen_at = max(incident.last_seen_at, alert.timestamp)
