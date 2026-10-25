@@ -74,7 +74,7 @@ def list_checks(
 
 
 @router.post("", response_model=SyntheticCheckResponse, status_code=status.HTTP_201_CREATED)
-def create_check(
+async def create_check(
     payload: SyntheticCheckCreate,
     request: Request,
     current_user: User = Depends(require_admin),
@@ -118,7 +118,7 @@ def create_check(
 
 
 @router.patch("/{check_id}", response_model=SyntheticCheckResponse)
-def update_check(
+async def update_check(
     check_id: str,
     payload: SyntheticCheckUpdate,
     request: Request,
@@ -169,7 +169,7 @@ def update_check(
 
 
 @router.delete("/{check_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-def delete_check(
+async def delete_check(
     check_id: str,
     request: Request,
     current_user: User = Depends(require_admin),
