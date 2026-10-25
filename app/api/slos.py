@@ -91,7 +91,7 @@ def update_slo(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> SLOResponse:
-    slo = db.get(SLO, slo_id)
+    slo = db.scalar(select(SLO).where(SLO.id == slo_id).with_for_update())
     if slo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SLO not found")
 
@@ -118,9 +118,10 @@ def update_slo(
         resource_id=slo.id,
         details={"fields": list(values)},
     )
+    db.flush()
+    response = SLOResponse.model_validate(slo)
     db.commit()
-    db.refresh(slo)
-    return slo
+    return response
 
 
 @router.delete("/{slo_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
