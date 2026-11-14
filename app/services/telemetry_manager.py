@@ -43,6 +43,7 @@ class TelemetryManager:
         max_rate: int = 100,
         anomaly_threshold: float = 3.0,
         source_mode: str = "hybrid",
+        persistence_enabled: bool | None = None,
     ) -> None:
         settings = get_settings()
         normalized_source_mode = source_mode.strip().lower()
@@ -69,7 +70,11 @@ class TelemetryManager:
         self._stop_event = asyncio.Event()
         self._lock = asyncio.Lock()
         self._start_time: datetime | None = None
-        self._persistence_enabled = settings.telemetry_persistence_enabled
+        self._persistence_enabled = (
+            settings.telemetry_persistence_enabled
+            if persistence_enabled is None
+            else persistence_enabled
+        )
         self._persistence_host_name = settings.telemetry_host_name
         self._persistence_host_id: str | None = None
         self._persistence: TelemetryPersistence | None = None
@@ -178,11 +183,12 @@ class TelemetryManager:
         self._stop_event.clear()
         self._start_time = utc_now()
         await self._ensure_persistence()
-        try:
-            with SessionLocal() as db:
-                self.reload_alert_rules(db)
-                if not self._alerts:
-                    active_rows = list(
+        if self._persistence_enabled:
+            try:
+                with SessionLocal() as db:
+                    self.reload_alert_rules(db)
+                    if not self._alerts:
+                        active_rows = list(
                         db.scalars(
                             select(AlertRecord)
                             .where(AlertRecord.status == "active")
@@ -220,9 +226,9 @@ class TelemetryManager:
                         self._active_alerts[key] = alert
                         if row.source == "rule" and row.rule_id:
                             hydrated_rule_alerts.append(alert)
-                    self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
-        except Exception:
-            logger.exception("Unable to load persisted alert rules/state")
+                        self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
+            except Exception:
+                logger.exception("Unable to load persisted alert rules/state")
         if self._event_bus is not None:
             await self._event_bus.start()
         if self.simulation_enabled:
