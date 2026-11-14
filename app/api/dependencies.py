@@ -28,3 +28,9 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Administrator access required",
         )
     return current_user
+
+
+def require_operator_or_demo(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.is_demo:
+        return current_user
+    return require_operator(current_user)
