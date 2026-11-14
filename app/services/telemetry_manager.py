@@ -183,52 +183,54 @@ class TelemetryManager:
         self._stop_event.clear()
         self._start_time = utc_now()
         await self._ensure_persistence()
+
         if self._persistence_enabled:
             try:
                 with SessionLocal() as db:
                     self.reload_alert_rules(db)
                     if not self._alerts:
                         active_rows = list(
-                        db.scalars(
-                            select(AlertRecord)
-                            .where(AlertRecord.status == "active")
-                            .order_by(AlertRecord.timestamp.asc())
+                            db.scalars(
+                                select(AlertRecord)
+                                .where(AlertRecord.status == "active")
+                                .order_by(AlertRecord.timestamp.asc())
+                            )
                         )
-                    )
-                    incident_by_alert = dict(
-                        db.execute(
-                            select(IncidentAlert.alert_id, IncidentAlert.incident_id)
-                        ).all()
-                    )
-                    hydrated_rule_alerts: list[Alert] = []
-                    for row in active_rows:
-                        alert = Alert(
-                            id=row.id,
-                            timestamp=row.timestamp,
-                            metric=row.metric,
-                            value=row.value,
-                            baseline=row.baseline,
-                            severity=row.severity,
-                            message=row.message,
-                            acknowledged=row.acknowledged,
-                            host_id=row.host_id,
-                            service_id=row.service_id,
-                            source=row.source,
-                            rule_id=row.rule_id,
-                            incident_id=incident_by_alert.get(row.id),
+                        incident_by_alert = dict(
+                            db.execute(
+                                select(IncidentAlert.alert_id, IncidentAlert.incident_id)
+                            ).all()
                         )
-                        self._alerts.append(alert)
-                        key = (
-                            f"rule:{row.rule_id}:{row.host_id or 'system'}"
-                            if row.source == "rule" and row.rule_id
-                            else f"anomaly:{row.host_id or 'system'}:{row.metric}"
-                        )
-                        self._active_alerts[key] = alert
-                        if row.source == "rule" and row.rule_id:
-                            hydrated_rule_alerts.append(alert)
+                        hydrated_rule_alerts: list[Alert] = []
+                        for row in active_rows:
+                            alert = Alert(
+                                id=row.id,
+                                timestamp=row.timestamp,
+                                metric=row.metric,
+                                value=row.value,
+                                baseline=row.baseline,
+                                severity=row.severity,
+                                message=row.message,
+                                acknowledged=row.acknowledged,
+                                host_id=row.host_id,
+                                service_id=row.service_id,
+                                source=row.source,
+                                rule_id=row.rule_id,
+                                incident_id=incident_by_alert.get(row.id),
+                            )
+                            self._alerts.append(alert)
+                            key = (
+                                f"rule:{row.rule_id}:{row.host_id or 'system'}"
+                                if row.source == "rule" and row.rule_id
+                                else f"anomaly:{row.host_id or 'system'}:{row.metric}"
+                            )
+                            self._active_alerts[key] = alert
+                            if row.source == "rule" and row.rule_id:
+                                hydrated_rule_alerts.append(alert)
                         self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
             except Exception:
                 logger.exception("Unable to load persisted alert rules/state")
+
         if self._event_bus is not None:
             await self._event_bus.start()
         if self.simulation_enabled:
