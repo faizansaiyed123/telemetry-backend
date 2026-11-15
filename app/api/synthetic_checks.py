@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_admin, require_authenticated, require_operator
+from app.api.dependencies import require_admin, require_authenticated, require_non_demo, require_operator
 from app.db.session import get_db
 from app.models.db import Service, SyntheticCheck, SyntheticCheckRun, User
 from app.models.observability import (
@@ -53,7 +53,7 @@ def _response(
 
 @router.get("", response_model=list[SyntheticCheckResponse])
 def list_checks(
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> list[SyntheticCheckResponse]:
     checks = list(db.scalars(select(SyntheticCheck).order_by(SyntheticCheck.name)))
@@ -210,7 +210,7 @@ async def run_check_now(
 def list_check_runs(
     check_id: str,
     limit: int = 100,
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> SyntheticCheckRunListResponse:
     if db.get(SyntheticCheck, check_id) is None:
