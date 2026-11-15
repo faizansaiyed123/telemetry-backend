@@ -43,9 +43,6 @@ class TelemetryManager:
         max_rate: int = 100,
         anomaly_threshold: float = 3.0,
         source_mode: str = "hybrid",
-        persistence_enabled: bool | None = None,
-        notifications_enabled: bool = True,
-        event_fanout_enabled: bool | None = None,
     ) -> None:
         settings = get_settings()
         normalized_source_mode = source_mode.strip().lower()
@@ -72,13 +69,7 @@ class TelemetryManager:
         self._stop_event = asyncio.Event()
         self._lock = asyncio.Lock()
         self._start_time: datetime | None = None
-        self._persistence_enabled = (
-            settings.telemetry_persistence_enabled
-            if persistence_enabled is None
-            else persistence_enabled
-        )
-        # Isolated demos must not enqueue work into shared webhook delivery.
-        self._notifications_enabled = notifications_enabled
+        self._persistence_enabled = settings.telemetry_persistence_enabled
         self._persistence_host_name = settings.telemetry_host_name
         self._persistence_host_id: str | None = None
         self._persistence: TelemetryPersistence | None = None
@@ -87,12 +78,7 @@ class TelemetryManager:
         self._incident_engine = IncidentEngine()
         self._rule_count = 0
         self._event_bus: PostgresEventBus | None = None
-        should_fanout = (
-            settings.distributed_event_fanout_enabled
-            if event_fanout_enabled is None
-            else event_fanout_enabled
-        )
-        if should_fanout:
+        if settings.distributed_event_fanout_enabled:
             self._event_bus = PostgresEventBus(
                 settings.database_url,
                 channel=settings.distributed_event_channel,
@@ -192,54 +178,51 @@ class TelemetryManager:
         self._stop_event.clear()
         self._start_time = utc_now()
         await self._ensure_persistence()
-
-        if self._persistence_enabled:
-            try:
-                with SessionLocal() as db:
-                    self.reload_alert_rules(db)
-                    if not self._alerts:
-                        active_rows = list(
-                            db.scalars(
-                                select(AlertRecord)
-                                .where(AlertRecord.status == "active")
-                                .order_by(AlertRecord.timestamp.asc())
-                            )
+        try:
+            with SessionLocal() as db:
+                self.reload_alert_rules(db)
+                if not self._alerts:
+                    active_rows = list(
+                        db.scalars(
+                            select(AlertRecord)
+                            .where(AlertRecord.status == "active")
+                            .order_by(AlertRecord.timestamp.asc())
                         )
-                        incident_by_alert = dict(
-                            db.execute(
-                                select(IncidentAlert.alert_id, IncidentAlert.incident_id)
-                            ).all()
+                    )
+                    incident_by_alert = dict(
+                        db.execute(
+                            select(IncidentAlert.alert_id, IncidentAlert.incident_id)
+                        ).all()
+                    )
+                    hydrated_rule_alerts: list[Alert] = []
+                    for row in active_rows:
+                        alert = Alert(
+                            id=row.id,
+                            timestamp=row.timestamp,
+                            metric=row.metric,
+                            value=row.value,
+                            baseline=row.baseline,
+                            severity=row.severity,
+                            message=row.message,
+                            acknowledged=row.acknowledged,
+                            host_id=row.host_id,
+                            service_id=row.service_id,
+                            source=row.source,
+                            rule_id=row.rule_id,
+                            incident_id=incident_by_alert.get(row.id),
                         )
-                        hydrated_rule_alerts: list[Alert] = []
-                        for row in active_rows:
-                            alert = Alert(
-                                id=row.id,
-                                timestamp=row.timestamp,
-                                metric=row.metric,
-                                value=row.value,
-                                baseline=row.baseline,
-                                severity=row.severity,
-                                message=row.message,
-                                acknowledged=row.acknowledged,
-                                host_id=row.host_id,
-                                service_id=row.service_id,
-                                source=row.source,
-                                rule_id=row.rule_id,
-                                incident_id=incident_by_alert.get(row.id),
-                            )
-                            self._alerts.append(alert)
-                            key = (
-                                f"rule:{row.rule_id}:{row.host_id or 'system'}"
-                                if row.source == "rule" and row.rule_id
-                                else f"anomaly:{row.host_id or 'system'}:{row.metric}"
-                            )
-                            self._active_alerts[key] = alert
-                            if row.source == "rule" and row.rule_id:
-                                hydrated_rule_alerts.append(alert)
-                        self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
-            except Exception:
-                logger.exception("Unable to load persisted alert rules/state")
-
+                        self._alerts.append(alert)
+                        key = (
+                            f"rule:{row.rule_id}:{row.host_id or 'system'}"
+                            if row.source == "rule" and row.rule_id
+                            else f"anomaly:{row.host_id or 'system'}:{row.metric}"
+                        )
+                        self._active_alerts[key] = alert
+                        if row.source == "rule" and row.rule_id:
+                            hydrated_rule_alerts.append(alert)
+                    self._alert_rule_engine.hydrate_active_alerts(hydrated_rule_alerts)
+        except Exception:
+            logger.exception("Unable to load persisted alert rules/state")
         if self._event_bus is not None:
             await self._event_bus.start()
         if self.simulation_enabled:
@@ -485,11 +468,9 @@ class TelemetryManager:
             platform_metrics.increment("alert_created_total")
             incident = self._incident_engine.on_alert_created(alert)
             alert.incident_id = incident.id
-            if self._notifications_enabled:
-                notification_dispatcher.enqueue_alert(alert, "created")
+            notification_dispatcher.enqueue_alert(alert, "created")
             if len(incident.alert_ids) == 1:
-                if self._notifications_enabled:
-                    notification_dispatcher.enqueue_incident(incident, "created")
+                notification_dispatcher.enqueue_incident(incident, "created")
             if self._alert_persistence is not None:
                 self._alert_persistence.enqueue(alert, alert.host_id)
             return alert
@@ -504,11 +485,9 @@ class TelemetryManager:
         existing.resolved_at = alert.resolved_at
         platform_metrics.increment("alert_resolved_total")
         resolved_incident = self._incident_engine.on_alert_resolved(existing)
-        if self._notifications_enabled:
-            notification_dispatcher.enqueue_alert(existing, "resolved")
+        notification_dispatcher.enqueue_alert(existing, "resolved")
         if resolved_incident is not None and resolved_incident.status == "resolved":
-            if self._notifications_enabled:
-                notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
+            notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
         if self._alert_persistence is not None:
             self._alert_persistence.enqueue(
                 existing,
@@ -549,11 +528,9 @@ class TelemetryManager:
                     platform_metrics.increment("alert_created_total")
                     incident = self._incident_engine.on_alert_created(alert)
                     alert.incident_id = incident.id
-                    if self._notifications_enabled:
-                        notification_dispatcher.enqueue_alert(alert, "created")
+                    notification_dispatcher.enqueue_alert(alert, "created")
                     if len(incident.alert_ids) == 1:
-                        if self._notifications_enabled:
-                            notification_dispatcher.enqueue_incident(incident, "created")
+                        notification_dispatcher.enqueue_incident(incident, "created")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             alert,
@@ -569,11 +546,9 @@ class TelemetryManager:
                     existing.resolved_at = utc_now()
                     platform_metrics.increment("alert_resolved_total")
                     resolved_incident = self._incident_engine.on_alert_resolved(existing)
-                    if self._notifications_enabled:
-                        notification_dispatcher.enqueue_alert(existing, "resolved")
+                    notification_dispatcher.enqueue_alert(existing, "resolved")
                     if resolved_incident is not None and resolved_incident.status == "resolved":
-                        if self._notifications_enabled:
-                            notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
+                        notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             existing,
@@ -724,7 +699,7 @@ class TelemetryManager:
 
     @property
     def notification_queue(self) -> int:
-        return notification_dispatcher.queue_depth if self._notifications_enabled else 0
+        return notification_dispatcher.queue_depth
 
     def get_current(self, host_id: str | None = None) -> TelemetryEvent | None:
         if host_id is None:

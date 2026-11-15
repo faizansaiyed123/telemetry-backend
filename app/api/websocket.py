@@ -1,10 +1,9 @@
-"""WebSocket endpoint for per-identity telemetry streaming."""
+"""WebSocket endpoint for telemetry streaming."""
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -20,61 +19,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
 
 
-def _is_expired(user: User) -> bool:
-    expires_at = user.demo_expires_at
-    if expires_at is None:
-        return user.is_demo
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    return expires_at <= datetime.now(timezone.utc)
-
-
-def _authenticate_websocket(token: str | None) -> User | None:
+def _authenticate_websocket(token: str | None) -> bool:
     """Validate and consume a short-lived, one-time WebSocket token."""
     if not token:
-        return None
+        return False
     try:
         payload = decode_websocket_token(token)
         subject = payload.get("sub")
         jti = payload.get("jti")
         if not subject or not isinstance(jti, str):
-            return None
+            return False
         if not ws_token_registry.consume(jti):
-            return None
+            return False
 
         with SessionLocal() as db:
-            user = db.scalar(
-                select(User).where(User.id == subject, User.is_active.is_(True))
-            )
-            if user is None:
-                return None
-            if _is_expired(user):
-                return None
-            db.expunge(user)
-            return user
+            return db.scalar(
+                select(User.id).where(User.id == subject, User.is_active.is_(True))
+            ) is not None
     except Exception:
         logger.debug("WebSocket authentication failed", exc_info=True)
-        return None
+        return False
 
 
 @router.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket) -> None:
-    """Stream only the telemetry runtime owned by the authenticated identity."""
-    user = _authenticate_websocket(websocket.query_params.get("token"))
-    if user is None:
+    """Stream telemetry events to authenticated clients."""
+    if not _authenticate_websocket(websocket.query_params.get("token")):
         await websocket.close(code=1008, reason="Authentication required")
         return
 
-    if user.is_demo:
-        registry = getattr(websocket.app.state, "demo_telemetry_registry", None)
-        manager = await registry.get(user.id) if registry is not None else None
-        if manager is None:
-            await websocket.close(code=1008, reason="Demo session is no longer active")
-            return
-    else:
-        manager = websocket.app.state.telemetry_manager
-
-    manager: TelemetryManager
+    manager: TelemetryManager = websocket.app.state.telemetry_manager
     await websocket.accept()
     await manager.ws_manager.register(websocket)
 
