@@ -49,9 +49,6 @@ def _authenticate_websocket(token: str | None) -> User | None:
             if user is None:
                 return None
             if _is_expired(user):
-                if user.is_demo:
-                    db.delete(user)
-                    db.commit()
                 return None
             db.expunge(user)
             return user
