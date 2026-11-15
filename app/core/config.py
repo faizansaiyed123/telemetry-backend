@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     jwt_secret_key: str = DEFAULT_JWT_SECRET_KEY
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    demo_enabled: bool = False
     demo_session_ttl_minutes: int = 120
+    trust_railway_x_real_ip: bool = False
     demo_max_active_sessions_per_ip: int = 2
     demo_bootstrap_requests_per_ip: int = 4
     bootstrap_admin_email: str = "admin@example.com"
