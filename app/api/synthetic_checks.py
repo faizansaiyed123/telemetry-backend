@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_admin, require_authenticated, require_non_demo, require_operator
+from app.api.dependencies import require_admin, require_non_demo, require_operator
 from app.db.session import get_db
 from app.models.db import Service, SyntheticCheck, SyntheticCheckRun, User
 from app.models.observability import (
