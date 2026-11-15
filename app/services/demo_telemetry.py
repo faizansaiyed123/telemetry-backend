@@ -2,16 +2,19 @@
 
 Each demo identity gets an independent in-process TelemetryManager with its own
 generator state, anomaly detector, alerts and WebSocket manager. Demo runtimes
-never use the production persistence host or production database state.
+never persist telemetry or alert state, join the distributed event bus, or
+deliver notifications to configured production webhook channels.
 """
 
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections.abc import AsyncIterator
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -27,9 +30,18 @@ class DemoRuntime:
 
 
 class DemoTelemetryRegistry:
+    """Own one synthetic runtime per active visitor in this single app process."""
+
     def __init__(self) -> None:
         self._sessions: dict[str, DemoRuntime] = {}
         self._lock = asyncio.Lock()
+        self._creation_lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def creation_guard(self) -> AsyncIterator[None]:
+        """Serialize session-limit checks and creation within this app process."""
+        async with self._creation_lock:
+            yield
 
     async def create(
         self,
@@ -45,6 +57,8 @@ class DemoTelemetryRegistry:
             anomaly_threshold=settings.anomaly_z_threshold,
             source_mode="synthetic",
             persistence_enabled=False,
+            notifications_enabled=False,
+            event_fanout_enabled=False,
         )
         await manager.start()
         async with self._lock:
@@ -76,7 +90,8 @@ class DemoTelemetryRegistry:
         if runtime is not None:
             await runtime.manager.stop()
 
-    async def sweep(self, db: Session) -> None:
+    async def sweep(self, db: Session) -> int:
+        """Stop expired runtimes and delete their disposable identity rows."""
         now = datetime.now(timezone.utc)
         expired_users = list(
             db.scalars(
@@ -92,6 +107,7 @@ class DemoTelemetryRegistry:
             db.delete(user)
         if expired_users:
             db.commit()
+        return len(expired_users)
 
     async def stop_all(self) -> None:
         async with self._lock:
