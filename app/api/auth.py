@@ -90,9 +90,14 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_error
     if user.is_demo:
-        if user.demo_expires_at is None or user.demo_expires_at <= datetime.now(timezone.utc):
-            db.delete(user)
-            db.commit()
+        expires_at = user.demo_expires_at
+        if expires_at is None:
+            raise credentials_error
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            # The lifespan cleanup worker must stop the in-memory runtime before
+            # deleting the identity row. Do not delete it on an auth request.
             raise credentials_error
     return user
 
