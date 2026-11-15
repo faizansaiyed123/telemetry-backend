@@ -65,6 +65,7 @@ class DemoTelemetryRegistry:
             previous = self._sessions.get(user_id)
             if previous is not None:
                 await previous.manager.stop()
+                await previous.manager.ws_manager.disconnect_all()
             self._sessions[user_id] = DemoRuntime(
                 user_id=user_id,
                 expires_at=expires_at,
@@ -81,6 +82,7 @@ class DemoTelemetryRegistry:
             if runtime.expires_at <= now:
                 self._sessions.pop(user_id, None)
                 await runtime.manager.stop()
+                await runtime.manager.ws_manager.disconnect_all()
                 return None
             return runtime.manager
 
@@ -89,6 +91,7 @@ class DemoTelemetryRegistry:
             runtime = self._sessions.pop(user_id, None)
         if runtime is not None:
             await runtime.manager.stop()
+            await runtime.manager.ws_manager.disconnect_all()
 
     async def sweep(self, db: Session) -> int:
         """Stop expired runtimes and delete their disposable identity rows."""
@@ -113,8 +116,12 @@ class DemoTelemetryRegistry:
         async with self._lock:
             runtimes = list(self._sessions.values())
             self._sessions.clear()
+        async def stop_runtime(runtime: DemoRuntime) -> None:
+            await runtime.manager.stop()
+            await runtime.manager.ws_manager.disconnect_all()
+
         await asyncio.gather(
-            *(runtime.manager.stop() for runtime in runtimes),
+            *(stop_runtime(runtime) for runtime in runtimes),
             return_exceptions=True,
         )
 
