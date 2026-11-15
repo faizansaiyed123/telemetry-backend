@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_authenticated, require_operator, require_operator_or_demo, resolve_telemetry_manager
+from app.api.dependencies import require_authenticated, require_operator_or_demo, resolve_telemetry_manager
 from app.db.session import get_db
 from app.models.alerts import Alert, AlertsResponse
 from app.models.db import AlertRecord, User
