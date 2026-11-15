@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_authenticated, require_non_demo, require_operator_or_demo, resolve_telemetry_manager
+from app.api.dependencies import require_authenticated, require_operator
 from app.db.session import get_db
 from app.models.db import AlertRecord, ChangeEvent, User
 from app.models.observability import IncidentEvidenceResponse, IncidentResponse, IncidentTimelineItem, IncidentServiceImpact
@@ -33,13 +33,12 @@ def _response(incident) -> IncidentResponse:
 
 
 @router.get("", response_model=list[IncidentResponse])
-async def list_incidents(
+def list_incidents(
     request: Request,
     status_filter: str | None = Query(default=None, alias="status"),
-    current_user: User = Depends(require_authenticated),
+    _: User = Depends(require_authenticated),
 ) -> list[IncidentResponse]:
-    manager = await resolve_telemetry_manager(request, current_user)
-    incidents = manager.incident_engine.all()
+    incidents = request.app.state.telemetry_manager.incident_engine.all()
     if status_filter:
         incidents = [incident for incident in incidents if incident.status == status_filter]
     return [_response(incident) for incident in incidents]
@@ -50,7 +49,7 @@ async def list_incidents(
 def get_incident_evidence(
     incident_id: str,
     request: Request,
-    _: User = Depends(require_non_demo),
+    _: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> IncidentEvidenceResponse:
     """Build a deterministic incident timeline from alerts and nearby changes."""
@@ -163,39 +162,36 @@ def get_incident_evidence(
 
 
 @router.get("/{incident_id}", response_model=IncidentResponse)
-async def get_incident(
+def get_incident(
     incident_id: str,
     request: Request,
-    current_user: User = Depends(require_authenticated),
+    _: User = Depends(require_authenticated),
 ) -> IncidentResponse:
-    manager = await resolve_telemetry_manager(request, current_user)
-    incident = manager.incident_engine.get(incident_id)
+    incident = request.app.state.telemetry_manager.incident_engine.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return _response(incident)
 
 
 @router.post("/{incident_id}/acknowledge", response_model=IncidentResponse)
-async def acknowledge_incident(
+def acknowledge_incident(
     incident_id: str,
     request: Request,
-    current_user: User = Depends(require_operator_or_demo),
+    current_user: User = Depends(require_operator),
     db: Session = Depends(get_db),
 ) -> IncidentResponse:
-    manager = await resolve_telemetry_manager(request, current_user)
-    engine = manager.incident_engine
+    engine = request.app.state.telemetry_manager.incident_engine
     incident = engine.acknowledge(incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Active incident not found")
 
-    if not current_user.is_demo:
-        add_audit_log(
-            db,
-            request=request,
-            actor_user_id=current_user.id,
-            action="incident.acknowledged",
-            resource_type="incident",
-            resource_id=incident_id,
-        )
-        db.commit()
+    add_audit_log(
+        db,
+        request=request,
+        actor_user_id=current_user.id,
+        action="incident.acknowledged",
+        resource_type="incident",
+        resource_id=incident_id,
+    )
+    db.commit()
     return _response(incident)
