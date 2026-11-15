@@ -44,6 +44,8 @@ class TelemetryManager:
         anomaly_threshold: float = 3.0,
         source_mode: str = "hybrid",
         persistence_enabled: bool | None = None,
+        notifications_enabled: bool = True,
+        event_fanout_enabled: bool | None = None,
     ) -> None:
         settings = get_settings()
         normalized_source_mode = source_mode.strip().lower()
@@ -75,6 +77,8 @@ class TelemetryManager:
             if persistence_enabled is None
             else persistence_enabled
         )
+        # Isolated demos must not enqueue work into shared webhook delivery.
+        self._notifications_enabled = notifications_enabled
         self._persistence_host_name = settings.telemetry_host_name
         self._persistence_host_id: str | None = None
         self._persistence: TelemetryPersistence | None = None
@@ -83,7 +87,12 @@ class TelemetryManager:
         self._incident_engine = IncidentEngine()
         self._rule_count = 0
         self._event_bus: PostgresEventBus | None = None
-        if settings.distributed_event_fanout_enabled:
+        should_fanout = (
+            settings.distributed_event_fanout_enabled
+            if event_fanout_enabled is None
+            else event_fanout_enabled
+        )
+        if should_fanout:
             self._event_bus = PostgresEventBus(
                 settings.database_url,
                 channel=settings.distributed_event_channel,
@@ -476,9 +485,11 @@ class TelemetryManager:
             platform_metrics.increment("alert_created_total")
             incident = self._incident_engine.on_alert_created(alert)
             alert.incident_id = incident.id
-            notification_dispatcher.enqueue_alert(alert, "created")
+            if self._notifications_enabled:
+                notification_dispatcher.enqueue_alert(alert, "created")
             if len(incident.alert_ids) == 1:
-                notification_dispatcher.enqueue_incident(incident, "created")
+                if self._notifications_enabled:
+                    notification_dispatcher.enqueue_incident(incident, "created")
             if self._alert_persistence is not None:
                 self._alert_persistence.enqueue(alert, alert.host_id)
             return alert
@@ -493,9 +504,11 @@ class TelemetryManager:
         existing.resolved_at = alert.resolved_at
         platform_metrics.increment("alert_resolved_total")
         resolved_incident = self._incident_engine.on_alert_resolved(existing)
-        notification_dispatcher.enqueue_alert(existing, "resolved")
+        if self._notifications_enabled:
+            notification_dispatcher.enqueue_alert(existing, "resolved")
         if resolved_incident is not None and resolved_incident.status == "resolved":
-            notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
+            if self._notifications_enabled:
+                notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
         if self._alert_persistence is not None:
             self._alert_persistence.enqueue(
                 existing,
@@ -536,9 +549,11 @@ class TelemetryManager:
                     platform_metrics.increment("alert_created_total")
                     incident = self._incident_engine.on_alert_created(alert)
                     alert.incident_id = incident.id
-                    notification_dispatcher.enqueue_alert(alert, "created")
+                    if self._notifications_enabled:
+                        notification_dispatcher.enqueue_alert(alert, "created")
                     if len(incident.alert_ids) == 1:
-                        notification_dispatcher.enqueue_incident(incident, "created")
+                        if self._notifications_enabled:
+                            notification_dispatcher.enqueue_incident(incident, "created")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             alert,
@@ -554,9 +569,11 @@ class TelemetryManager:
                     existing.resolved_at = utc_now()
                     platform_metrics.increment("alert_resolved_total")
                     resolved_incident = self._incident_engine.on_alert_resolved(existing)
-                    notification_dispatcher.enqueue_alert(existing, "resolved")
+                    if self._notifications_enabled:
+                        notification_dispatcher.enqueue_alert(existing, "resolved")
                     if resolved_incident is not None and resolved_incident.status == "resolved":
-                        notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
+                        if self._notifications_enabled:
+                            notification_dispatcher.enqueue_incident(resolved_incident, "resolved")
                     if self._alert_persistence is not None:
                         self._alert_persistence.enqueue(
                             existing,
@@ -707,7 +724,7 @@ class TelemetryManager:
 
     @property
     def notification_queue(self) -> int:
-        return notification_dispatcher.queue_depth
+        return notification_dispatcher.queue_depth if self._notifications_enabled else 0
 
     def get_current(self, host_id: str | None = None) -> TelemetryEvent | None:
         if host_id is None:
