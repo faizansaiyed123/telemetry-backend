@@ -75,7 +75,6 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s (env=%s)", settings.app_name, settings.app_env)
     demo_registry = DemoTelemetryRegistry()
     app.state.demo_telemetry_registry = demo_registry
-    demo_cleanup_task = asyncio.create_task(_demo_cleanup_loop(demo_registry))
     manager = TelemetryManager(
         max_history_size=settings.max_history_size,
         telemetry_rate=settings.telemetry_rate,
@@ -93,6 +92,8 @@ async def lifespan(app: FastAPI):
     synthetic_monitor = SyntheticMonitor(manager)
     app.state.synthetic_monitor = synthetic_monitor
     await synthetic_monitor.start()
+    # Start expiry maintenance only after every normal service is ready.
+    demo_cleanup_task = asyncio.create_task(_demo_cleanup_loop(demo_registry))
     yield
     demo_cleanup_task.cancel()
     try:
