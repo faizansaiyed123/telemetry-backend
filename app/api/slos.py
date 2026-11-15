@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_admin, require_authenticated
+from app.api.dependencies import require_admin, require_authenticated, require_non_demo
 from app.db.session import get_db
 from app.models.db import Host, SLO, User
 from app.models.observability import SLOCreate, SLOResponse, SLOStatusResponse, SLOUpdate
@@ -27,7 +27,7 @@ def _validate_host(db: Session, host_id: str) -> Host:
 
 @router.get("", response_model=list[SLOResponse])
 def list_slos(
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> list[SLOResponse]:
     return list(db.scalars(select(SLO).order_by(SLO.name)))
@@ -36,7 +36,7 @@ def list_slos(
 @router.get("/{slo_id}/status", response_model=SLOStatusResponse)
 def get_slo_status(
     slo_id: str,
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> SLOStatusResponse:
     slo = db.get(SLO, slo_id)
