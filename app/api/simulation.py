@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from app.api.dependencies import require_authenticated, require_operator
+from app.api.dependencies import require_authenticated, require_operator_or_demo, resolve_telemetry_manager
 from app.models.alerts import TriggerAnomalyRequest
 from app.models.db import User
 from app.models.system import SimulationStatus
@@ -15,10 +15,10 @@ router = APIRouter(prefix="/api/simulation", tags=["simulation"])
 @router.get("/status", response_model=SimulationStatus)
 async def get_simulation_status(
     request: Request,
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ) -> SimulationStatus:
-    """Get the current simulation state."""
-    manager = request.app.state.telemetry_manager
+    """Get the simulation state owned by the authenticated identity."""
+    manager = await resolve_telemetry_manager(request, current_user)
     return SimulationStatus(
         running=manager.running,
         simulation_enabled=manager.simulation_enabled,
@@ -36,10 +36,10 @@ async def get_simulation_status(
 @router.post("/start", status_code=status.HTTP_200_OK)
 async def start_simulation(
     request: Request,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Start telemetry generation."""
-    manager = request.app.state.telemetry_manager
+    """Start the caller's telemetry generation."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if manager.running:
@@ -51,10 +51,10 @@ async def start_simulation(
 @router.post("/pause", status_code=status.HTTP_200_OK)
 async def pause_simulation(
     request: Request,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Pause telemetry generation."""
-    manager = request.app.state.telemetry_manager
+    """Pause the caller's telemetry generation."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if not manager.running:
@@ -66,10 +66,10 @@ async def pause_simulation(
 @router.post("/resume", status_code=status.HTTP_200_OK)
 async def resume_simulation(
     request: Request,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Resume telemetry generation."""
-    manager = request.app.state.telemetry_manager
+    """Resume the caller's telemetry generation."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     if manager.running:
@@ -81,10 +81,10 @@ async def resume_simulation(
 @router.post("/reset", status_code=status.HTTP_200_OK)
 async def reset_simulation(
     request: Request,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Reset all telemetry state."""
-    manager = request.app.state.telemetry_manager
+    """Reset only the caller's telemetry state."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     await manager.reset()
@@ -95,10 +95,10 @@ async def reset_simulation(
 async def set_rate(
     request: Request,
     rate: int = Query(..., ge=1, description="New telemetry rate (events/sec)"),
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Set the telemetry rate."""
-    manager = request.app.state.telemetry_manager
+    """Set the caller's telemetry rate."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     try:
@@ -115,10 +115,10 @@ async def set_rate(
 async def trigger_anomaly(
     request: Request,
     body: TriggerAnomalyRequest,
-    _: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
 ) -> dict:
-    """Trigger an anomaly on a specific metric."""
-    manager = request.app.state.telemetry_manager
+    """Trigger an anomaly only in the caller's simulation."""
+    manager = await resolve_telemetry_manager(request, current_user)
     if not manager.simulation_enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Simulation controls are disabled when TELEMETRY_SOURCE_MODE=agent")
     await manager.trigger_anomaly(

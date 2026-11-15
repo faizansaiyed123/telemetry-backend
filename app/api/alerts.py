@@ -1,4 +1,4 @@
-"""Alerts REST API endpoints."""
+"""Alert API endpoints with per-demo-session isolation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_authenticated, require_operator
+from app.api.dependencies import require_authenticated, require_operator_or_demo, resolve_telemetry_manager
 from app.db.session import get_db
 from app.models.alerts import Alert, AlertsResponse
 from app.models.db import AlertRecord, User
@@ -40,19 +40,28 @@ def _to_alert(record: AlertRecord) -> Alert:
 
 
 @router.get("", response_model=AlertsResponse)
-def get_alerts(
+async def get_alerts(
     request: Request,
     active_only: bool = Query(default=False, description="Filter for only active alerts"),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> AlertsResponse:
-    """Return persisted and live alerts, newest first."""
+    """Return only the authenticated identity's live or persisted alerts."""
+    manager = await resolve_telemetry_manager(request, current_user)
+    if current_user.is_demo:
+        alerts = manager.get_alerts(active_only=active_only)
+        return AlertsResponse(
+            alerts=alerts,
+            active_count=sum(not alert.resolved for alert in alerts),
+            total_count=len(alerts),
+        )
+
     stmt = select(AlertRecord).order_by(AlertRecord.timestamp.desc()).limit(200)
     if active_only:
         stmt = stmt.where(AlertRecord.status == "active")
 
     persisted = [_to_alert(record) for record in db.scalars(stmt)]
-    live = request.app.state.telemetry_manager.get_alerts(active_only=active_only)
+    live = manager.get_alerts(active_only=active_only)
 
     by_id = {alert.id: alert for alert in persisted}
     for alert in live:
@@ -70,13 +79,18 @@ def get_alerts(
 async def acknowledge_alert(
     alert_id: str,
     request: Request,
-    current_user: User = Depends(require_operator),
+    current_user: User = Depends(require_operator_or_demo),
     db: Session = Depends(get_db),
 ) -> AlertActionResponse:
-    """Mark an alert as acknowledged and record the operator action."""
-    manager = request.app.state.telemetry_manager
-    record = db.get(AlertRecord, alert_id)
+    """Acknowledge only an alert owned by the current user's runtime."""
+    manager = await resolve_telemetry_manager(request, current_user)
 
+    if current_user.is_demo:
+        if not await manager.acknowledge_alert(alert_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+        return AlertActionResponse(status="acknowledged", alert_id=alert_id)
+
+    record = db.get(AlertRecord, alert_id)
     if record is None:
         if await manager.acknowledge_alert(alert_id):
             add_audit_log(

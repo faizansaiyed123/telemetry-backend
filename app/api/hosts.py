@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user
+from app.api.dependencies import require_non_demo
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.db import Host, User
@@ -48,7 +49,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 
 @router.get("", response_model=list[HostResponse])
-def list_hosts(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_hosts(_: User = Depends(require_non_demo), db: Session = Depends(get_db)):
     return list(db.scalars(select(Host).order_by(Host.name)))
 
 

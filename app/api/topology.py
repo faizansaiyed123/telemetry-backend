@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_admin, require_authenticated
+from app.api.dependencies import require_admin, require_non_demo
 from app.db.session import get_db
 from app.models.db import Service, ServiceDependency, SyntheticCheck, SyntheticCheckRun, User
 from app.models.observability import (
@@ -62,7 +62,7 @@ def _service_response(service: Service) -> ServiceResponse:
 
 @router.get("", response_model=list[ServiceResponse])
 def list_services(
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> list[ServiceResponse]:
     return [_service_response(service) for service in db.scalars(select(Service).order_by(Service.name))]
@@ -245,7 +245,7 @@ def delete_dependency(
 @router.get("/{service_id}/dependencies", response_model=list[ServiceDependencyResponse])
 def list_dependencies(
     service_id: str,
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> list[ServiceDependencyResponse]:
     if db.get(Service, service_id) is None:
@@ -263,7 +263,7 @@ topology_router = APIRouter(prefix="/api/topology", tags=["topology"])
 
 @topology_router.get("", response_model=TopologyResponse)
 def get_topology(
-    _: User = Depends(require_authenticated),
+    _: User = Depends(require_non_demo),
     db: Session = Depends(get_db),
 ) -> TopologyResponse:
     services = list(db.scalars(select(Service).order_by(Service.name)))

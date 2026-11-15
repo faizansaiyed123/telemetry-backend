@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from math import ceil
+from math import ceil, floor
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import require_authenticated
+from app.api.dependencies import require_authenticated, resolve_telemetry_manager
 from app.db.session import get_db
 from app.models.db import TelemetryRecord, User
 from app.models.telemetry import (
@@ -163,9 +163,11 @@ def _db_stats(
 async def get_current_telemetry(
     request: Request,
     host_id: str | None = Query(default=None),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ) -> CurrentTelemetryResponse:
-    manager = request.app.state.telemetry_manager
+    manager = await resolve_telemetry_manager(request, current_user)
+    if current_user.is_demo and host_id is not None:
+        raise HTTPException(status_code=403, detail="Demo sessions cannot select shared telemetry hosts")
     event = manager.get_current(host_id=host_id)
     return CurrentTelemetryResponse(event=event, available=event is not None)
 
@@ -177,11 +179,22 @@ async def get_telemetry_history(
     host_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None, description="Inclusive UTC start timestamp"),
     end: datetime | None = Query(default=None, description="Exclusive UTC end timestamp"),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> HistoryResponse:
     start, end = _normalize_range(start, end)
-    manager = request.app.state.telemetry_manager
+    manager = await resolve_telemetry_manager(request, current_user)
+
+    if current_user.is_demo:
+        if host_id is not None:
+            raise HTTPException(status_code=403, detail="Demo sessions cannot select shared telemetry hosts")
+        events = [
+            event for event in manager.get_history(manager.max_history_size)
+            if (start is None or event.timestamp >= start)
+            and (end is None or event.timestamp < end)
+        ][-limit:]
+        return HistoryResponse(events=events, count=len(events), limit=limit)
+
     if start is None and end is None and manager.persistence_host_id is None and host_id is None:
         events = manager.get_history(limit=limit)
     else:
@@ -215,6 +228,52 @@ async def get_telemetry_history(
     return HistoryResponse(events=events, count=len(events), limit=limit)
 
 
+def _in_memory_series(
+    events: list[TelemetryEvent],
+    *,
+    metric: str,
+    start: datetime,
+    end: datetime,
+    bucket_seconds: int,
+    host_id: str,
+) -> TelemetrySeriesResponse:
+    """Build chart points only from this demo identity's in-memory events."""
+    values_by_bucket: dict[int, list[float]] = {}
+    for event in events:
+        if event.timestamp < start or event.timestamp >= end:
+            continue
+        value = float(getattr(event, metric))
+        bucket = floor(event.timestamp.timestamp() / bucket_seconds) * bucket_seconds
+        values_by_bucket.setdefault(bucket, []).append(value)
+
+    points: list[TelemetrySeriesPoint] = []
+    for bucket, raw_values in sorted(values_by_bucket.items()):
+        values = sorted(raw_values)
+        position = 0.95 * (len(values) - 1)
+        lower = floor(position)
+        upper = min(lower + 1, len(values) - 1)
+        p95 = values[lower] + (values[upper] - values[lower]) * (position - lower)
+        points.append(
+            TelemetrySeriesPoint(
+                timestamp=datetime.fromtimestamp(bucket, tz=timezone.utc),
+                samples=len(values),
+                avg=round(sum(values) / len(values), 4),
+                min=round(values[0], 4),
+                max=round(values[-1], 4),
+                p95=round(p95, 4),
+            )
+        )
+
+    return TelemetrySeriesResponse(
+        host_id=host_id,
+        metric=metric,
+        start=start,
+        end=end,
+        bucket_seconds=bucket_seconds,
+        points=points,
+    )
+
+
 @router.get("/series", response_model=TelemetrySeriesResponse)
 async def get_telemetry_series(
     request: Request,
@@ -226,10 +285,10 @@ async def get_telemetry_series(
     start: datetime | None = Query(default=None, description="Inclusive UTC start timestamp"),
     end: datetime | None = Query(default=None, description="Exclusive UTC end timestamp"),
     bucket_seconds: int = Query(default=60, ge=1, le=86400),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> TelemetrySeriesResponse:
-    """Return bounded database-side time-series aggregates for dashboard charts."""
+    """Return bounded database-side or per-session in-memory time-series aggregates."""
     normalized_start, normalized_end = _normalize_range(start, end)
     now = datetime.now(timezone.utc)
     range_end = normalized_end or now
@@ -245,7 +304,19 @@ async def get_telemetry_series(
             detail="bucket_seconds is too small for the requested time range; maximum 5000 points",
         )
 
-    manager = request.app.state.telemetry_manager
+    manager = await resolve_telemetry_manager(request, current_user)
+    if current_user.is_demo:
+        if host_id is not None:
+            raise HTTPException(status_code=403, detail="Demo sessions cannot select shared telemetry hosts")
+        return _in_memory_series(
+            manager.get_history(manager.max_history_size),
+            metric=metric,
+            start=range_start,
+            end=range_end,
+            bucket_seconds=bucket_seconds,
+            host_id="demo",
+        )
+
     target_host_id = host_id or manager.persistence_host_id
     if target_host_id is None:
         current = manager.get_current()
@@ -318,11 +389,23 @@ async def get_telemetry_stats(
     host_id: str | None = Query(default=None),
     start: datetime | None = Query(default=None, description="Inclusive UTC start timestamp"),
     end: datetime | None = Query(default=None, description="Exclusive UTC end timestamp"),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
     db: Session = Depends(get_db),
 ) -> TelemetryStats:
     start, end = _normalize_range(start, end)
-    manager = request.app.state.telemetry_manager
+    manager = await resolve_telemetry_manager(request, current_user)
+
+    if current_user.is_demo:
+        if host_id is not None:
+            raise HTTPException(status_code=403, detail="Demo sessions cannot select shared telemetry hosts")
+        filtered = [
+            event
+            for event in manager.get_history(manager.max_history_size)
+            if (start is None or event.timestamp >= start)
+            and (end is None or event.timestamp < end)
+        ]
+        return compute_stats(filtered)
+
     target_host_id = host_id or manager.persistence_host_id
     if target_host_id is None:
         if start is not None or end is not None:

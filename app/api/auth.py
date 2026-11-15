@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -31,6 +32,8 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+    is_demo: bool = False
+    demo_expires_at: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -86,6 +89,16 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.scalar(select(User).where(User.id == subject, User.is_active.is_(True)))
     if user is None:
         raise credentials_error
+    if user.is_demo:
+        expires_at = user.demo_expires_at
+        if expires_at is None:
+            raise credentials_error
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            # The lifespan cleanup worker must stop the in-memory runtime before
+            # deleting the identity row. Do not delete it on an auth request.
+            raise credentials_error
     return user
 
 
@@ -181,7 +194,14 @@ def websocket_token(current_user: User = Depends(get_current_user)) -> WebSocket
 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
-    return current_user
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "role": current_user.role,
+        "is_active": current_user.is_active,
+        "is_demo": current_user.is_demo,
+        "demo_expires_at": current_user.demo_expires_at.isoformat() if current_user.demo_expires_at else None,
+    }
 
 
 @router.post("/change-password", response_model=ChangePasswordResponse)
@@ -191,6 +211,11 @@ def change_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChangePasswordResponse:
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Temporary demo identities cannot change account credentials",
+        )
     if not verify_password(payload.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
