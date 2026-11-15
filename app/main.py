@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -17,6 +18,7 @@ from app.api.alerts import router as alerts_router
 from app.api.api_keys import router as api_keys_router
 from app.api.auth import router as auth_router
 from app.api.changes import router as changes_router
+from app.api.demo import router as demo_router
 from app.api.health import router as health_router
 from app.api.hosts import router as hosts_router
 from app.api.incidents import router as incidents_router
@@ -35,6 +37,8 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitExceeded, rate_limiter
 from app.core.request_context import reset_request_id, set_request_id
+from app.db.session import SessionLocal
+from app.services.demo_telemetry import DemoTelemetryRegistry
 from app.services.notification_dispatcher import notification_dispatcher
 from app.services.platform_metrics import platform_metrics
 from app.services.synthetic_monitor import SyntheticMonitor
@@ -48,12 +52,30 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+async def _demo_cleanup_loop(registry: DemoTelemetryRegistry) -> None:
+    """Delete expired demo identities and stop their in-memory runtimes."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            with SessionLocal() as db:
+                expired_count = await registry.sweep(db)
+            if expired_count:
+                logger.info("Expired %d recruiter demo session(s)", expired_count)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Demo session cleanup failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings)
     bootstrap_data()
     logger.info("Starting %s (env=%s)", settings.app_name, settings.app_env)
+    demo_registry = DemoTelemetryRegistry()
+    app.state.demo_telemetry_registry = demo_registry
+    demo_cleanup_task = asyncio.create_task(_demo_cleanup_loop(demo_registry))
     manager = TelemetryManager(
         max_history_size=settings.max_history_size,
         telemetry_rate=settings.telemetry_rate,
@@ -72,6 +94,12 @@ async def lifespan(app: FastAPI):
     app.state.synthetic_monitor = synthetic_monitor
     await synthetic_monitor.start()
     yield
+    demo_cleanup_task.cancel()
+    try:
+        await demo_cleanup_task
+    except asyncio.CancelledError:
+        pass
+    await demo_registry.stop_all()
     await synthetic_monitor.stop()
     await retention.stop()
     await manager.stop()
@@ -204,6 +232,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(demo_router)
     app.include_router(changes_router)
     app.include_router(users_router)
     app.include_router(hosts_router)
